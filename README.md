@@ -1,6 +1,6 @@
 # IDtoAE: InDesign to After Effects
 
-`motion vibes` · **by [Andrew Dean](https://andrewjdean.com)**, senior video editor and motion designer
+`AE Bro` · **by [Andrew Dean](https://andrewjdean.com)**, senior video editor and motion designer
 
 An After Effects panel that turns an InDesign document into one comp per page,
 with every shape and every letter as a native, animatable **shape layer**.

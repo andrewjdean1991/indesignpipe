@@ -1,5 +1,5 @@
 /*
- * IDtoAE v1.1.0 - InDesign to After Effects
+ * IDtoAE v1.1.1 - InDesign to After Effects
  * by Andrew Dean - https://andrewjdean.com
  * Copyright (c) 2026 Andrew Dean. MIT License - see LICENSE in the repository.
  *
@@ -36,7 +36,7 @@ var IDtoAE = IDtoAE || {};
 
 (function (NS) {
 
-    NS.VERSION = "1.1.0";
+    NS.VERSION = "1.1.1";
     NS.AUTHOR = "Andrew Dean";
     NS.WEBSITE = "https://andrewjdean.com";
     NS.HELP_URL = "https://github.com/andrewjdean1991/indesignpipe#readme";
@@ -828,33 +828,29 @@ var IDtoAE = IDtoAE || {};
         w.spacing = 8;
         w.margins = 10;
 
-        // Header: "motion vibes" sticker, name and version.
+        // Header: "AE Bro" sticker, name and version.
         var head = w.add("group");
         head.orientation = "row";
         head.alignChildren = ["left", "center"];
         head.spacing = 10;
-        var STICKER = "motion vibes";
-        var stickerFont = ScriptUI.newFont("Arial", "BOLD", 13);
+        // A plain label on a lime group sizes itself to the text, so the
+        // padding stays even whatever font size the host renders.
         var sticker = head.add("group");
-        var tw = STICKER.length * 8;
-        try { tw = w.graphics.measureString(STICKER, stickerFont)[0]; } catch (e) {}
-        sticker.preferredSize = [Math.ceil(tw) + 18, 24];
+        sticker.margins = [9, 4, 9, 4];
+        sticker.alignChildren = ["center", "center"];
         sticker.helpTip = IDtoAE.WEBSITE;
-        sticker.onDraw = function () {
-            var g = this.graphics, sz = this.size;
-            g.newPath();
-            g.rectPath(0, 0, sz.width, sz.height);
-            g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, LIME.concat([1])));
-            var pen = g.newPen(g.PenType.SOLID_COLOR, [0.067, 0.067, 0.067, 1], 1);
-            var m = g.measureString(STICKER, stickerFont);
-            g.drawString(STICKER, pen, (sz.width - m[0]) / 2, (sz.height - m[1]) / 2, stickerFont);
-        };
+        var stickerTxt = sticker.add("statictext", undefined, "AE Bro");
+        try {
+            sticker.graphics.backgroundColor = sticker.graphics.newBrush(sticker.graphics.BrushType.SOLID_COLOR, LIME);
+            stickerTxt.graphics.foregroundColor = stickerTxt.graphics.newPen(stickerTxt.graphics.PenType.SOLID_COLOR, [0.067, 0.067, 0.067], 1);
+            stickerTxt.graphics.font = ScriptUI.newFont("Arial", ScriptUI.FontStyle.BOLD, 14);
+        } catch (e) {}
         var titles = head.add("group");
         titles.orientation = "column";
         titles.alignChildren = ["left", "top"];
         titles.spacing = 0;
         var title = titles.add("statictext", undefined, "IDtoAE");
-        try { title.graphics.font = ScriptUI.newFont("Arial", "BOLD", 16); } catch (e) {}
+        try { title.graphics.font = ScriptUI.newFont("Arial", ScriptUI.FontStyle.BOLD, 16); } catch (e) {}
         titles.add("statictext", undefined, "InDesign to After Effects  \u00B7  v" + IDtoAE.VERSION);
         var helpBtn = head.add("button", undefined, "Help");
         helpBtn.alignment = ["right", "center"];
