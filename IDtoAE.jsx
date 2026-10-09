@@ -54,8 +54,12 @@
         var fpsTxt = numRow("Frame rate (fps)", getSetting("fps", "25"));
         var durTxt = numRow("Duration (sec)", getSetting("duration", "5"));
         var scaleTxt = numRow("Image resolution (x)", getSetting("imageScale", "2"));
+        var swatchChk = optGrp.add("checkbox", undefined, "Swatch comp (sRGB)");
+        swatchChk.value = getSetting("swatches", "true") == "true";
 
         var goBtn = w.add("button", undefined, "Build comps");
+        var swatchBtn = w.add("button", undefined, "Swatch comp only");
+        swatchBtn.helpTip = "Quickly builds just the swatch comp from the InDesign file's Swatches panel.";
         var rebuildBtn = w.add("button", undefined, "Rebuild from previous export...");
         var splitGrp = w.add("panel", undefined, "Break apart");
         splitGrp.orientation = "column";
@@ -83,17 +87,18 @@
             var fps = parseFloat(fpsTxt.text), dur = parseFloat(durTxt.text), sc = parseFloat(scaleTxt.text);
             if (!(fps > 0) || !(dur > 0) || !(sc > 0)) throw new Error("Frame rate, duration and image resolution must be positive numbers.");
             setSetting("fps", fps); setSetting("duration", dur); setSetting("imageScale", sc);
-            return { fps: fps, duration: dur, imageScale: sc };
+            setSetting("swatches", swatchChk.value);
+            return { fps: fps, duration: dur, imageScale: sc, swatches: swatchChk.value };
         }
 
         function build(manifestPath, opts) {
             var t0 = new Date().getTime();
             var res = IDtoAE.buildFromManifest(manifestPath, {
-                fps: opts.fps, duration: opts.duration,
+                fps: opts.fps, duration: opts.duration, swatches: opts.swatches,
                 onProgress: function (done, total, label) { setStatus("Building " + label + " (" + (done + 1) + " of " + total + ")..."); }
             });
             var secs = Math.round((new Date().getTime() - t0) / 1000);
-            setStatus("Done: " + res.comps.length + " comps in " + secs + "s.");
+            setStatus("Done: " + res.comps.length + " comp" + (res.comps.length == 1 ? "" : "s") + " in " + secs + "s.");
             if (res.warnings.length) {
                 var shown = res.warnings.slice(0, 25).join("\n");
                 if (res.warnings.length > 25) shown += "\n... and " + (res.warnings.length - 25) + " more (see manifest.json)";
@@ -116,11 +121,26 @@
             }
         };
 
+        swatchBtn.onClick = function () {
+            try {
+                var f = File(pathTxt.text);
+                if (!pathTxt.text || !f.exists) throw new Error("Choose an InDesign (.indd) file first.");
+                setSetting("lastFile", f.fsName);
+                var opts = readOpts();
+                opts.swatches = true;
+                var manifest = IDtoAE.exportFromInDesign(ENGINE_FILE, f.fsName, opts.imageScale, setStatus, true);
+                build(manifest, opts);
+            } catch (e) {
+                setStatus("Stopped.");
+                alert(String(e.message || e), "IDtoAE");
+            }
+        };
+
         rebuildBtn.onClick = function () {
             try {
                 var opts = readOpts();
-                var m = File.openDialog("Choose a manifest.json from an earlier export", function (f) {
-                    return f instanceof Folder || f.name == "manifest.json";
+                var m = File.openDialog("Choose a manifest.json (or swatches.json) from an earlier export", function (f) {
+                    return f instanceof Folder || f.name == "manifest.json" || f.name == "swatches.json";
                 });
                 if (m) build(m.fsName, opts);
             } catch (e) {

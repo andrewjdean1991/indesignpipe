@@ -5,7 +5,7 @@ with every shape and every letter as a native, animatable **shape layer**.
 
 - Live text is outlined automatically, so type arrives as shapes, with each letter's outlines as separate paths
 - One layer per top-level InDesign item; InDesign groups become nested shape groups
-- Colours are converted with the document's own colour profiles, so they match InDesign's RGB output
+- Colours are converted to **sRGB** through the document's own CMYK profile, so they match InDesign's sRGB output
 - Placed images (JPG, WebP, PDF pages, and so on) come in as cropped transparent PNGs at 2x resolution
 - Items on hidden InDesign layers come in switched off
 - The original `.indd` is never modified, because the export runs on a temporary copy
@@ -40,6 +40,21 @@ PNGs in it. **Rebuild from previous export...** builds comps from an existing
 
 You can also run `IDtoAE/IDtoAE_InDesign.jsx` on its own from InDesign's Scripts panel
 to produce the export folder.
+
+## Swatch comp
+
+**Build comps** also makes a `<document> Swatches` comp (untick **Swatch comp (sRGB)**
+to skip it), and **Swatch comp only** builds just that comp in a couple of seconds.
+It has one chip per swatch from InDesign's Swatches panel, in panel order, with:
+
+- the swatch name
+- its sRGB hex and RGB values
+- its original InDesign definition (CMYK, HSB or RGB)
+
+CMYK swatches are converted from the document's CMYK profile (e.g. Coated FOGRA39) to
+sRGB IEC61966-2.1, and HSB swatches are converted directly. InDesign's built-in
+None/Registration/Paper/Black are left out. Gradient swatches are listed as not included.
+The text layers are parented to their chip, so you can move a chip and its labels together.
 
 ## Break apart (second stage)
 

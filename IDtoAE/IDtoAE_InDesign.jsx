@@ -17,6 +17,7 @@ var IDtoAE = IDtoAE || {};
 
 (function (NS) {
 
+    var SRGB = "sRGB IEC61966-2.1";
     var IMAGE_SCALE_DEFAULT = 2; // PNGs are exported at 2x so they hold up when scaled in AE
 
     // ---------------------------------------------------------------- helpers
@@ -315,6 +316,45 @@ var IDtoAE = IDtoAE || {};
 
     // -------------------------------------------------------------- document
 
+    // InDesign's built-in swatches; everything else in the Swatches panel is exported.
+    var STOCK_SWATCHES = { "None": 1, "Registration": 1, "Paper": 1, "Black": 1 };
+
+    function hex2(v) { var h = Math.round(v * 255).toString(16).toUpperCase(); return h.length < 2 ? "0" + h : h; }
+
+    function describeColor(c) {
+        var v = c.colorValue, r = [];
+        for (var i = 0; i < v.length; i++) r.push(Math.round(v[i]));
+        if (c.space == ColorSpace.CMYK) return "C" + r[0] + " M" + r[1] + " Y" + r[2] + " K" + r[3];
+        if (c.space == ColorSpace.HSB) return "HSB " + r.join(" ");
+        if (c.space == ColorSpace.LAB) return "Lab " + r.join(" ");
+        return "RGB " + r.join(" ");
+    }
+
+    // Swatches in Swatches-panel order, converted to sRGB.
+    function collectSwatches(doc, ctx) {
+        var out = [];
+        var all = doc.swatches.everyItem().getElements();
+        for (var i = 0; i < all.length; i++) {
+            var sw = all[i], kind = sw.constructor.name;
+            if (STOCK_SWATCHES[sw.name]) continue;
+            var where = "Swatch '" + sw.name + "'";
+            var rgb = null, source = "";
+            if (kind == "Color") {
+                rgb = colorToRGB(sw, 100, ctx, where);
+                source = describeColor(sw);
+            } else if (kind == "Tint") {
+                rgb = colorToRGB(sw, 100, ctx, where);
+                source = Math.round(sw.tintValue) + "% of " + sw.baseColor.name;
+            } else {
+                ctx.warn(where + ": " + kind.toLowerCase() + " swatches aren't included in the swatch comp");
+                continue;
+            }
+            if (!rgb) continue;
+            out.push({ name: sw.name, rgb: rgb, hex: "#" + hex2(rgb[0]) + hex2(rgb[1]) + hex2(rgb[2]), source: source });
+        }
+        return out;
+    }
+
     function relinkMissing(doc, inddFolder, ctx) {
         var links = doc.links;
         for (var i = 0; i < links.length; i++) {
@@ -376,10 +416,19 @@ var IDtoAE = IDtoAE || {};
         return out;
     }
 
+    function writeManifest(mf, manifest, pageCount, ctx) {
+        mf.encoding = "UTF-8";
+        mf.lineFeed = "Unix";
+        if (!mf.open("w")) throw new Error("Could not write " + mf.fsName);
+        mf.write(toJSON(manifest));
+        mf.close();
+        return "OK|" + mf.fsName + "|" + pageCount + "|" + ctx.warnings.length;
+    }
+
     /**
      * Export an InDesign document for After Effects.
      * @param {String} inddPath  path to the .indd
-     * @param {Object} [opts]    { outFolder, imageScale }
+     * @param {Object} [opts]    { outFolder, imageScale, swatchesOnly }
      * @returns {String} "OK|<manifest path>|<pages>|<warnings>" or "ERROR|<message>"
      */
     NS.exportDocument = function (inddPath, opts) {
@@ -413,7 +462,9 @@ var IDtoAE = IDtoAE || {};
             ctx.mark("opened");
 
             if (!outFolder.exists) outFolder.create();
-            if (imagesFolder.exists) {
+            if (opts.swatchesOnly) {
+                // nothing else to prepare
+            } else if (imagesFolder.exists) {
                 var old = imagesFolder.getFiles("*.png");
                 for (var o = 0; o < old.length; o++) old[o].remove();
             } else imagesFolder.create();
@@ -435,14 +486,25 @@ var IDtoAE = IDtoAE || {};
             }
 
             // app.colorTransform uses the application's working spaces, not the
-            // document's, so borrow the document's profiles for the export.
+            // document's: convert from the document's CMYK profile to sRGB.
             oldCMYK = app.colorSettings.workingSpaceCMYK;
             oldRGB = app.colorSettings.workingSpaceRGB;
             try {
                 if (doc.cmykProfile != oldCMYK) app.colorSettings.workingSpaceCMYK = doc.cmykProfile;
-                if (doc.rgbProfile != oldRGB) app.colorSettings.workingSpaceRGB = doc.rgbProfile;
+                if (oldRGB != SRGB) app.colorSettings.workingSpaceRGB = SRGB;
             } catch (e) {
-                ctx.warn("Could not use the document's colour profiles (" + doc.cmykProfile + "); colours may shift slightly");
+                ctx.warn("Could not set up the colour conversion (" + doc.cmykProfile + " to sRGB); colours may shift slightly");
+            }
+            if (doc.rgbProfile != SRGB) {
+                ctx.warn("The document's RGB profile is " + doc.rgbProfile + ", not sRGB: RGB swatches are passed through unconverted");
+            }
+
+            var swatches = collectSwatches(doc, ctx);
+            if (opts.swatchesOnly) {
+                return writeManifest(File(outFolder.fsName + "/swatches.json"), {
+                    version: 1, source: src.fsName, document: baseName, exported: new Date().toString(),
+                    pages: [], swatches: swatches, warnings: ctx.warnings
+                }, 0, ctx);
             }
 
             relinkMissing(doc, inddFolder, ctx);
@@ -493,17 +555,10 @@ var IDtoAE = IDtoAE || {};
                 outlinedTextFrames: outlined,
                 timingsMs: ctx.timings,
                 pages: pages,
+                swatches: swatches,
                 warnings: ctx.warnings
             };
-
-            var mf = File(outFolder.fsName + "/manifest.json");
-            mf.encoding = "UTF-8";
-            mf.lineFeed = "Unix";
-            if (!mf.open("w")) throw new Error("Could not write " + mf.fsName);
-            mf.write(toJSON(manifest));
-            mf.close();
-
-            return "OK|" + mf.fsName + "|" + pages.length + "|" + ctx.warnings.length;
+            return writeManifest(File(outFolder.fsName + "/manifest.json"), manifest, pages.length, ctx);
         } catch (e) {
             return "ERROR|" + e + (e.line ? " (line " + e.line + ")" : "");
         } finally {

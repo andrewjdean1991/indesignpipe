@@ -199,6 +199,86 @@ var IDtoAE = IDtoAE || {};
         return addShapeLayer(comp, node, opacity, visible);
     }
 
+    // ----------------------------------------------------------- swatch comp
+
+    function addText(comp, str, font, size, color, x, y) {
+        var layer = comp.layers.addText(str);
+        var src = layer.property("ADBE Text Properties").property("ADBE Text Document");
+        var td = src.value;
+        td.resetCharStyle();
+        td.font = font;
+        td.fontSize = size;
+        td.applyFill = true;
+        td.fillColor = color;
+        td.applyStroke = false;
+        td.justification = ParagraphJustification.LEFT_JUSTIFY;
+        src.setValue(td);
+        layer.transform.position.setValue([x, y]); // text layers sit on their baseline
+        return layer;
+    }
+
+    function luminance(rgb) {
+        function lin(c) { return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+        return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+    }
+
+    /**
+     * One square per swatch with its name, sRGB hex and values, and its
+     * original InDesign definition. Laid out in Swatches-panel order.
+     */
+    NS.buildSwatchComp = function (swatches, name, parentFolder, fps, duration) {
+        // Chips in 4 columns, Swatches-panel order running down each column:
+        // square on the left, name / sRGB / InDesign values on the right.
+        var W = 1920, margin = 100, titleH = 80, colGap = 48, rowGap = 26, cols = 4;
+        var rows = Math.ceil(swatches.length / cols);
+        var colW = (W - 2 * margin - (cols - 1) * colGap) / cols;
+        var sq = Math.min(130, Math.floor((1080 - 2 * margin - titleH - (rows - 1) * rowGap) / rows));
+        if (sq < 84) sq = 84; // the comp grows taller instead of shrinking the chips
+        var H = Math.max(1080, 2 * margin + titleH + rows * sq + (rows - 1) * rowGap);
+        H += H % 2;
+
+        var comp = app.project.items.addComp(name, W, H, 1.0, duration, fps);
+        if (parentFolder) comp.parentFolder = parentFolder;
+        comp.bgColor = [1, 1, 1];
+        var paper = comp.layers.addSolid([1, 1, 1], "Background", W, H, 1.0);
+        paper.locked = true;
+
+        var ink = [0.1, 0.1, 0.1], grey = [0.42, 0.42, 0.42];
+        addText(comp, name.replace(/ Swatches$/, "") + " \u2014 swatches (sRGB)", "Helvetica-Bold", 30, ink, margin, margin + 30);
+
+        for (var i = 0; i < swatches.length; i++) {
+            var sw = swatches[i];
+            var x = margin + Math.floor(i / rows) * (colW + colGap);
+            var y = margin + titleH + (i % rows) * (sq + rowGap);
+
+            var chip = comp.layers.addShape();
+            chip.name = sw.name;
+            var g = chip.property("ADBE Root Vectors Group").addProperty("ADBE Vector Group");
+            g.name = sw.name;
+            var sub = g.property("ADBE Vectors Group");
+            sub.addProperty("ADBE Vector Shape - Rect").property("ADBE Vector Rect Size").setValue([sq, sq]);
+            // A hairline keeps very light swatches visible on the white page.
+            if (luminance(sw.rgb) > 0.85) {
+                var st = sub.addProperty("ADBE Vector Graphic - Stroke");
+                st.property("ADBE Vector Stroke Color").setValue([0.82, 0.82, 0.82, 1]);
+                st.property("ADBE Vector Stroke Width").setValue(1);
+            }
+            sub.addProperty("ADBE Vector Graphic - Fill").property("ADBE Vector Fill Color").setValue(sw.rgb.concat([1]));
+            chip.transform.anchorPoint.setValue([0, 0]);
+            chip.transform.position.setValue([x + sq / 2, y + sq / 2]);
+            chip.comment = sw.hex + " / " + sw.source;
+
+            var rgb255 = [Math.round(sw.rgb[0] * 255), Math.round(sw.rgb[1] * 255), Math.round(sw.rgb[2] * 255)];
+            var tx = x + sq + 20;
+            var t1 = addText(comp, sw.name, "Helvetica-Bold", 22, ink, tx, y + 24);
+            var t2 = addText(comp, sw.hex + "    RGB " + rgb255.join(" "), "Helvetica", 16, grey, tx, y + 52);
+            var t3 = addText(comp, sw.source, "Helvetica", 16, grey, tx, y + 76);
+            t1.name = sw.name + " - name"; t2.name = sw.name + " - sRGB"; t3.name = sw.name + " - InDesign";
+            t1.parent = t2.parent = t3.parent = chip;
+        }
+        return comp;
+    };
+
     function uniqueFolderName(base) {
         var names = {};
         for (var i = 1; i <= app.project.numItems; i++) names[app.project.item(i).name] = true;
@@ -218,8 +298,9 @@ var IDtoAE = IDtoAE || {};
      * @param {String} inddPath
      * @param {Number} imageScale
      * @param {Function} [status]  called with progress messages
+     * @param {Boolean} [swatchesOnly]  only export the swatches (fast)
      */
-    NS.exportFromInDesign = function (enginePath, inddPath, imageScale, status) {
+    NS.exportFromInDesign = function (enginePath, inddPath, imageScale, status, swatchesOnly) {
         status = status || function () {};
         var engine = File(enginePath);
         if (!engine.exists) throw new Error("Missing " + enginePath + "\nReinstall the IDtoAE folder next to IDtoAE.jsx.");
@@ -238,7 +319,8 @@ var IDtoAE = IDtoAE || {};
         // InDesign loads the engine from disk: sending its source in the message
         // body mangles regex escapes in transit.
         bt.body = "var IDtoAE_NO_AUTORUN = true;\n$.evalFile(File(" + quote(engine.fsName) + "));\n" +
-                  "IDtoAE.exportDocument(" + quote(inddPath) + ", { imageScale: " + Number(imageScale) + " });";
+                  "IDtoAE.exportDocument(" + quote(inddPath) + ", { imageScale: " + Number(imageScale) +
+                  ", swatchesOnly: " + (swatchesOnly ? "true" : "false") + " });";
         var result = null;
         bt.onResult = function (msg) { result = String(msg.body); };
         bt.onError = function (msg) { result = "ERROR|" + msg.body; };
@@ -260,7 +342,7 @@ var IDtoAE = IDtoAE || {};
     /**
      * Build comps from an exported manifest.
      * @param {String} manifestPath
-     * @param {Object} [opts] { fps, duration, onProgress(done, total, label) }
+     * @param {Object} [opts] { fps, duration, swatches (default true), onProgress(done, total, label) }
      * @returns {Object} { folder, comps, warnings }
      */
     NS.buildFromManifest = function (manifestPath, opts) {
@@ -297,8 +379,12 @@ var IDtoAE = IDtoAE || {};
                 for (var i = 0; i < page.layers.length; i++) addNode(comp, page.layers[i], ctx, 100, true);
                 comps.push(comp);
             }
+            if (m.swatches && m.swatches.length && opts.swatches !== false) {
+                comps.unshift(NS.buildSwatchComp(m.swatches, m.document + " Swatches", root, fps, duration));
+            }
             if (opts.onProgress) opts.onProgress(m.pages.length, m.pages.length, "Done");
             if (!imagesFolder.numItems) imagesFolder.remove();
+            if (!compsFolder.numItems) compsFolder.remove();
             return { folder: root, comps: comps, warnings: (m.warnings || []).concat(ctx.warnings) };
         } finally {
             app.endUndoGroup();
