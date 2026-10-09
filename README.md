@@ -41,6 +41,23 @@ PNGs in it. **Rebuild from previous export...** builds comps from an existing
 You can also run `IDtoAE/IDtoAE_InDesign.jsx` on its own from InDesign's Scripts panel
 to produce the export folder.
 
+## Break apart (second stage)
+
+Use this on the pages that need it. Select shape layers in a comp and click
+**Break apart selected layers**. Every shape inside them becomes its own shape layer,
+however deeply it was nested in groups, and each new layer's anchor point sits
+at the centre of its shape. Letters with holes (O, A, 9...) stay as one shape.
+Layers that hold a single shape are left as they are. It's a single undo step.
+
+- **Reading order**: layers are ordered left to right and top to bottom, with the first
+  letter at the top of the timeline, ready for Sequence Layers or offset animation.
+  Shapes that really overlap keep their original front-to-back order.
+- **Label colour per word**: words are detected from the letter spacing (a word
+  space is much wider than the gap between letters), and each word gets its own label
+  colour. Layer names carry the word and position, for example `... w2.05`.
+
+Layers with animated transforms, effects, masks or 3D are skipped and listed.
+
 ## What doesn't carry over
 
 The build reports anything it couldn't convert exactly:

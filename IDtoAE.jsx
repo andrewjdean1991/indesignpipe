@@ -10,6 +10,7 @@
  */
 
 #include "IDtoAE/IDtoAE_AE.jsx"
+#include "IDtoAE/IDtoAE_BreakApart.jsx"
 
 (function (thisObj) {
 
@@ -56,6 +57,16 @@
 
         var goBtn = w.add("button", undefined, "Build comps");
         var rebuildBtn = w.add("button", undefined, "Rebuild from previous export...");
+        var splitGrp = w.add("panel", undefined, "Break apart");
+        splitGrp.orientation = "column";
+        splitGrp.alignChildren = ["fill", "top"];
+        var orderChk = splitGrp.add("checkbox", undefined, "Reading order (left to right, top to bottom)");
+        orderChk.value = getSetting("readingOrder", "true") == "true";
+        var colorChk = splitGrp.add("checkbox", undefined, "Label colour per word");
+        colorChk.value = getSetting("colorWords", "true") == "true";
+        var splitBtn = splitGrp.add("button", undefined, "Break apart selected layers");
+        splitBtn.helpTip = "Every shape in the selected layers becomes its own layer, with its anchor point at its centre.";
+
         var status = w.add("statictext", undefined, "Choose an .indd file, then Build comps.", { multiline: true });
         status.preferredSize.height = 44;
 
@@ -112,6 +123,20 @@
                     return f instanceof Folder || f.name == "manifest.json";
                 });
                 if (m) build(m.fsName, opts);
+            } catch (e) {
+                setStatus("Stopped.");
+                alert(String(e.message || e), "IDtoAE");
+            }
+        };
+
+        splitBtn.onClick = function () {
+            try {
+                setSetting("readingOrder", orderChk.value);
+                setSetting("colorWords", colorChk.value);
+                var res = IDtoAE.breakApartSelected({ readingOrder: orderChk.value, colorWords: colorChk.value });
+                setStatus("Split into " + res.layers + " layers" + (colorChk.value ? " (" + res.words + " words)" : "") + "." +
+                          (res.unchanged ? " " + res.unchanged + " single-shape layer(s) left as they were." : ""));
+                if (res.skipped.length) alert("Some layers were left as they are:\n\n" + res.skipped.join("\n"), "IDtoAE");
             } catch (e) {
                 setStatus("Stopped.");
                 alert(String(e.message || e), "IDtoAE");
