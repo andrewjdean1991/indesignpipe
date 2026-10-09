@@ -56,6 +56,13 @@
         var title = titles.add("statictext", undefined, "IDtoAE");
         try { title.graphics.font = ScriptUI.newFont("Arial", "BOLD", 16); } catch (e) {}
         titles.add("statictext", undefined, "InDesign to After Effects  \u00B7  v" + IDtoAE.VERSION);
+        var helpBtn = head.add("button", undefined, "Help");
+        helpBtn.alignment = ["right", "center"];
+        helpBtn.preferredSize = [56, 24];
+        helpBtn.helpTip = "Open the IDtoAE guide on GitHub";
+        helpBtn.onClick = function () {
+            try { IDtoAE.openURL(IDtoAE.HELP_URL); } catch (e) { alert("The guide is at " + IDtoAE.HELP_URL, "IDtoAE"); }
+        };
 
         var fileGrp = w.add("panel", undefined, "InDesign file");
         fileGrp.orientation = "row";
@@ -109,7 +116,7 @@
         link.helpTip = "Open " + IDtoAE.WEBSITE;
         try { link.graphics.foregroundColor = link.graphics.newPen(link.graphics.PenType.SOLID_COLOR, LIME.concat([1]), 1); } catch (e) {}
         link.addEventListener("mousedown", function () {
-            try { IDtoAE.openWebsite(); } catch (e) { alert("Visit " + IDtoAE.WEBSITE, "IDtoAE"); }
+            try { IDtoAE.openURL(IDtoAE.WEBSITE); } catch (e) { alert("Visit " + IDtoAE.WEBSITE, "IDtoAE"); }
         });
 
         function setStatus(s) { status.text = s; try { w.update(); } catch (e) {} }

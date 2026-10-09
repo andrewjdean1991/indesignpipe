@@ -14,6 +14,7 @@ var IDtoAE = IDtoAE || {};
     NS.VERSION = "1.0.0";
     NS.AUTHOR = "Andrew Dean";
     NS.WEBSITE = "https://andrewjdean.com";
+    NS.HELP_URL = "https://github.com/andrewjdean1991/indesignpipe#readme";
 
     /**
      * Path of the InDesign engine script. The single-file build embeds its source
@@ -34,8 +35,7 @@ var IDtoAE = IDtoAE || {};
         return scriptFolder + "/IDtoAE/IDtoAE_InDesign.jsx";
     };
 
-    NS.openWebsite = function () {
-        var url = NS.WEBSITE;
+    NS.openURL = function (url) {
         if ($.os.indexOf("Windows") >= 0) system.callSystem('cmd /c start "" "' + url + '"');
         else system.callSystem('open "' + url + '"');
     };
