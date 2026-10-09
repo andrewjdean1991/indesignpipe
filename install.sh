@@ -1,5 +1,6 @@
 #!/bin/zsh
-# Installs the IDtoAE panel into the newest After Effects version in your user prefs.
+# Installs the IDtoAE panel (dist/IDtoAE.jsx) into the newest After Effects
+# version in your user preferences. Run it again after `git pull` to update.
 set -e
 HERE="${0:A:h}"
 latest=""
@@ -13,8 +14,7 @@ if [[ -z "$latest" ]]; then
 fi
 dest="$latest/Scripts/ScriptUI Panels"
 mkdir -p "$dest"
-rm -rf "$dest/IDtoAE"
-cp "$HERE/IDtoAE.jsx" "$dest/"
-cp -R "$HERE/IDtoAE" "$dest/"
-echo "Installed into $dest"
+rm -rf "$dest/IDtoAE"            # older two-part installs
+cp "$HERE/dist/IDtoAE.jsx" "$dest/"
+echo "Installed IDtoAE into $dest"
 echo "Restart After Effects, then open Window > IDtoAE.jsx"

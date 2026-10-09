@@ -1,0 +1,27 @@
+IDtoAE v1.0.0 - InDesign to After Effects
+by Andrew Dean - https://andrewjdean.com
+
+INSTALL (Mac)
+1. Quit After Effects.
+2. In Finder choose Go > Go to Folder... and paste:
+     ~/Library/Preferences/Adobe/After Effects/
+   Open the folder with the highest version number (for example 26.3),
+   then Scripts > ScriptUI Panels. Create the "Scripts" and "ScriptUI Panels"
+   folders if they are missing.
+3. Drag IDtoAE.jsx into ScriptUI Panels.
+4. Open After Effects. Go to Settings > Scripting & Expressions and turn on
+   "Allow Scripts to Write Files and Access Network".
+5. Open Window > IDtoAE.jsx and dock the panel.
+
+INSTALL (Windows, untested)
+Same steps, with the folder:
+     %APPDATA%\Adobe\After Effects\<version>\Scripts\ScriptUI Panels
+
+USE
+- Choose... picks the .indd file, then Build comps. InDesign must be installed;
+  the first time, macOS may ask to let After Effects control InDesign: click OK.
+- Swatch comp only builds a comp of the document's swatches in sRGB.
+- Break apart selected layers splits shape layers into one layer per shape.
+
+UPDATE
+Replace IDtoAE.jsx with the new version and restart After Effects.

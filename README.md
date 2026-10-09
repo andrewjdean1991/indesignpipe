@@ -1,27 +1,88 @@
 # IDtoAE: InDesign to After Effects
 
+**by [Andrew Dean](https://andrewjdean.com)**, senior video editor and motion designer
+
 An After Effects panel that turns an InDesign document into one comp per page,
 with every shape and every letter as a native, animatable **shape layer**.
 
 - Live text is outlined automatically, so type arrives as shapes, with each letter's outlines as separate paths
 - One layer per top-level InDesign item; InDesign groups become nested shape groups
 - Colours are converted to **sRGB** through the document's own CMYK profile, so they match InDesign's sRGB output
+- A **swatch comp** of the document's named swatches, in sRGB
+- **Break apart** splits pages into one layer per letter, in reading order, with a label colour per word
 - Placed images (JPG, WebP, PDF pages, and so on) come in as cropped transparent PNGs at 2x resolution
 - Items on hidden InDesign layers come in switched off
 - The original `.indd` is never modified, because the export runs on a temporary copy
 
-## Install
+## Requirements
+
+- After Effects and InDesign **2024 or newer**, installed on the same computer
+- In After Effects: **Settings > Scripting & Expressions > Allow Scripts to Write Files and Access Network** turned on
+
+## Install on a Mac
+
+The whole panel is one file: `IDtoAE.jsx`. Pick one of the two ways below.
+
+### Option A: download the latest release (no Terminal)
+
+1. On this repository's GitHub page, click **Releases** in the right-hand column and open
+   the newest release.
+2. Under **Assets**, download `IDtoAE-v….zip`, then double-click it in Downloads to unzip it.
+3. Quit After Effects.
+4. In Finder choose **Go > Go to Folder…**, paste this and press Return:
+   ```
+   ~/Library/Preferences/Adobe/After Effects/
+   ```
+5. Open the folder with the **highest version number** (for example `26.3`), then
+   **Scripts > ScriptUI Panels**. If `Scripts` or `ScriptUI Panels` doesn't exist, create it
+   with exactly that name.
+6. Drag `IDtoAE.jsx` into **ScriptUI Panels**.
+7. Open After Effects and turn on **Settings > Scripting & Expressions > Allow Scripts to
+   Write Files and Access Network**.
+8. Choose **Window > IDtoAE.jsx** and dock the panel wherever you like.
+
+**To update:** download the new release and replace `IDtoAE.jsx` in the same folder.
+
+### Option B: with Terminal and Git (easy updates)
+
+Open **Terminal** (Applications > Utilities) and run these one at a time:
 
 ```bash
-./install.sh
+cd ~/Documents
 ```
 
-This copies `IDtoAE.jsx` and the `IDtoAE/` folder into your newest After Effects
-user `Scripts/ScriptUI Panels` folder. Restart After Effects, then open
-**Window > IDtoAE.jsx** and dock the panel wherever you like.
+```bash
+git clone https://github.com/andrewjdean1991/indesignpipe.git
+```
 
-Requirements: After Effects and InDesign 2024 or newer on the same Mac.
-**Settings > Scripting & Expressions > Allow Scripts to Write Files and Access Network** must be on in After Effects.
+```bash
+cd indesignpipe && ./install.sh
+```
+
+If macOS offers to install the command line developer tools when you run `git`, accept,
+then run the `git clone` line again. If the repository is private, GitHub asks you to sign
+in. You need to have been invited as a collaborator.
+
+`install.sh` copies the panel into your newest After Effects version. Restart After Effects,
+then open **Window > IDtoAE.jsx**.
+
+**To update:**
+
+```bash
+cd ~/Documents/indesignpipe && git pull && ./install.sh
+```
+
+### First run
+
+The first time you click **Build comps**, macOS asks whether After Effects may control
+InDesign. Click **OK**, because the panel asks InDesign to do the export in the background.
+
+## Install on Windows (untested)
+
+Download the release zip as in Option A, then put `IDtoAE.jsx` in
+`%APPDATA%\Adobe\After Effects\<version>\Scripts\ScriptUI Panels` (paste that into the
+File Explorer address bar). From a clone of the repository, you can instead right-click
+`install-windows.ps1` and choose **Run with PowerShell**.
 
 ## Use
 
@@ -38,8 +99,8 @@ The export is saved next to the InDesign file as `<document>_AE/`
 PNGs in it. **Rebuild from previous export...** builds comps from an existing
 `manifest.json` without opening InDesign again.
 
-You can also run `IDtoAE/IDtoAE_InDesign.jsx` on its own from InDesign's Scripts panel
-to produce the export folder.
+You can also run `IDtoAE/IDtoAE_InDesign.jsx` from this repository on its own, from
+InDesign's Scripts panel, to produce the export folder.
 
 ## Swatch comp
 
@@ -81,3 +142,20 @@ The build reports anything it couldn't convert exactly:
 - Gradients use their first colour stop
 - Inside- and outside-aligned strokes are drawn centred, and dashed strokes as solid
 - Rectangle corner effects (such as rounded corners) come in square
+
+## For developers
+
+The source is split into `IDtoAE.jsx` (panel UI) and `IDtoAE/` (AE builder, break apart,
+and the InDesign engine). The installable single file is generated:
+
+```bash
+node build.js
+```
+
+This writes `dist/IDtoAE.jsx` (panel, AE code and the InDesign engine embedded as a string)
+and `dist/IDtoAE-v<version>.zip` with an install guide. Bump `NS.VERSION` in
+`IDtoAE/IDtoAE_AE.jsx` for a new release.
+
+---
+
+© 2026 Andrew Dean · [andrewjdean.com](https://andrewjdean.com)

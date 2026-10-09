@@ -11,6 +11,35 @@ var IDtoAE = IDtoAE || {};
 
 (function (NS) {
 
+    NS.VERSION = "1.0.0";
+    NS.AUTHOR = "Andrew Dean";
+    NS.WEBSITE = "https://andrewjdean.com";
+
+    /**
+     * Path of the InDesign engine script. The single-file build embeds its source
+     * (IDtoAE.ENGINE_SOURCE) and writes it to the user's Application Support
+     * folder; the source checkout keeps it next to the panel.
+     */
+    NS.enginePath = function (scriptFolder) {
+        if (NS.ENGINE_SOURCE) {
+            var dir = Folder(Folder.userData.fsName + "/IDtoAE");
+            if (!dir.exists) dir.create();
+            var f = File(dir.fsName + "/IDtoAE_InDesign_" + NS.VERSION + ".jsx");
+            f.encoding = "UTF-8";
+            if (!f.open("w")) throw new Error("Could not write " + f.fsName);
+            f.write(NS.ENGINE_SOURCE);
+            f.close();
+            return f.fsName;
+        }
+        return scriptFolder + "/IDtoAE/IDtoAE_InDesign.jsx";
+    };
+
+    NS.openWebsite = function () {
+        var url = NS.WEBSITE;
+        if ($.os.indexOf("Windows") >= 0) system.callSystem('cmd /c start "" "' + url + '"');
+        else system.callSystem('open "' + url + '"');
+    };
+
     // ---------------------------------------------------------------- helpers
 
     function readText(f) {

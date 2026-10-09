@@ -1,12 +1,12 @@
 /*
  * IDtoAE — InDesign to After Effects
+ * by Andrew Dean · https://andrewjdean.com
  *
  * Dockable panel: pick an .indd file and get one comp per page, with every
  * shape and outlined letter as native shape layers.
  *
- * Install: copy this file AND the IDtoAE folder into
- *   ~/Library/Preferences/Adobe/After Effects/<version>/Scripts/ScriptUI Panels/
- * (or run install.sh), restart After Effects, then open Window > IDtoAE.jsx.
+ * This is the source entry point. The file to install is the single-file
+ * build, dist/IDtoAE.jsx (see README.md); `node build.js` regenerates it.
  */
 
 #include "IDtoAE/IDtoAE_AE.jsx"
@@ -15,8 +15,8 @@
 (function (thisObj) {
 
     var SCRIPT_FOLDER = File($.fileName).parent.fsName;
-    var ENGINE_FILE = SCRIPT_FOLDER + "/IDtoAE/IDtoAE_InDesign.jsx";
     var SETTINGS = "IDtoAE";
+    var LIME = [0.784, 1, 0.18]; // andrewjdean.com accent, #C8FF2E
 
     function getSetting(key, def) {
         try { if (app.settings.haveSetting(SETTINGS, key)) return app.settings.getSetting(SETTINGS, key); } catch (e) {}
@@ -26,11 +26,36 @@
 
     function buildUI(thisObj) {
         var w = (thisObj instanceof Panel) ? thisObj
-              : new Window("palette", "InDesign to After Effects", undefined, { resizeable: true });
+              : new Window("palette", "IDtoAE", undefined, { resizeable: true });
         w.orientation = "column";
         w.alignChildren = ["fill", "top"];
         w.spacing = 8;
         w.margins = 10;
+
+        // Header: AD badge, name and version.
+        var head = w.add("group");
+        head.orientation = "row";
+        head.alignChildren = ["left", "center"];
+        head.spacing = 10;
+        var badge = head.add("group");
+        badge.preferredSize = [34, 34];
+        badge.onDraw = function () {
+            var g = this.graphics, sz = this.size;
+            g.newPath();
+            g.rectPath(0, 0, sz.width, sz.height);
+            g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0.067, 0.067, 0.067, 1]));
+            var f = ScriptUI.newFont("Arial", "BOLD", 15);
+            var pen = g.newPen(g.PenType.SOLID_COLOR, LIME.concat([1]), 1);
+            var m = g.measureString("AD", f);
+            g.drawString("AD", pen, (sz.width - m[0]) / 2, (sz.height - m[1]) / 2, f);
+        };
+        var titles = head.add("group");
+        titles.orientation = "column";
+        titles.alignChildren = ["left", "top"];
+        titles.spacing = 0;
+        var title = titles.add("statictext", undefined, "IDtoAE");
+        try { title.graphics.font = ScriptUI.newFont("Arial", "BOLD", 16); } catch (e) {}
+        titles.add("statictext", undefined, "InDesign to After Effects  \u00B7  v" + IDtoAE.VERSION);
 
         var fileGrp = w.add("panel", undefined, "InDesign file");
         fileGrp.orientation = "row";
@@ -74,6 +99,19 @@
         var status = w.add("statictext", undefined, "Choose an .indd file, then Build comps.", { multiline: true });
         status.preferredSize.height = 44;
 
+        // Footer: credit with a link to the website.
+        var foot = w.add("group");
+        foot.orientation = "row";
+        foot.alignChildren = ["left", "center"];
+        foot.spacing = 4;
+        foot.add("statictext", undefined, "Made by " + IDtoAE.AUTHOR + "  \u00B7");
+        var link = foot.add("statictext", undefined, "andrewjdean.com");
+        link.helpTip = "Open " + IDtoAE.WEBSITE;
+        try { link.graphics.foregroundColor = link.graphics.newPen(link.graphics.PenType.SOLID_COLOR, LIME.concat([1]), 1); } catch (e) {}
+        link.addEventListener("mousedown", function () {
+            try { IDtoAE.openWebsite(); } catch (e) { alert("Visit " + IDtoAE.WEBSITE, "IDtoAE"); }
+        });
+
         function setStatus(s) { status.text = s; try { w.update(); } catch (e) {} }
 
         browseBtn.onClick = function () {
@@ -113,7 +151,7 @@
                 if (!pathTxt.text || !f.exists) throw new Error("Choose an InDesign (.indd) file first.");
                 setSetting("lastFile", f.fsName);
                 var opts = readOpts();
-                var manifest = IDtoAE.exportFromInDesign(ENGINE_FILE, f.fsName, opts.imageScale, setStatus);
+                var manifest = IDtoAE.exportFromInDesign(IDtoAE.enginePath(SCRIPT_FOLDER), f.fsName, opts.imageScale, setStatus);
                 build(manifest, opts);
             } catch (e) {
                 setStatus("Stopped.");
@@ -128,7 +166,7 @@
                 setSetting("lastFile", f.fsName);
                 var opts = readOpts();
                 opts.swatches = true;
-                var manifest = IDtoAE.exportFromInDesign(ENGINE_FILE, f.fsName, opts.imageScale, setStatus, true);
+                var manifest = IDtoAE.exportFromInDesign(IDtoAE.enginePath(SCRIPT_FOLDER), f.fsName, opts.imageScale, setStatus, true);
                 build(manifest, opts);
             } catch (e) {
                 setStatus("Stopped.");
@@ -168,6 +206,7 @@
         return w;
     }
 
-    buildUI(thisObj);
+    // Tests load the panel without showing it.
+    if (typeof IDtoAE_NO_UI == "undefined") buildUI(thisObj);
 
 })(this);
