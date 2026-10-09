@@ -1,6 +1,6 @@
 # IDtoAE: InDesign to After Effects
 
-**by [Andrew Dean](https://andrewjdean.com)**, senior video editor and motion designer
+`motion vibes` · **by [Andrew Dean](https://andrewjdean.com)**, senior video editor and motion designer
 
 An After Effects panel that turns an InDesign document into one comp per page,
 with every shape and every letter as a native, animatable **shape layer**.
@@ -158,4 +158,4 @@ and `dist/IDtoAE-v<version>.zip` with an install guide. Bump `NS.VERSION` in
 
 ---
 
-© 2026 Andrew Dean · [andrewjdean.com](https://andrewjdean.com)
+© 2026 Andrew Dean · [andrewjdean.com](https://andrewjdean.com) · [MIT License](LICENSE)

@@ -1,4 +1,4 @@
-IDtoAE v1.0.0 - InDesign to After Effects
+IDtoAE v1.1.0 - InDesign to After Effects
 by Andrew Dean - https://andrewjdean.com
 
 INSTALL (Mac)

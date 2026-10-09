@@ -34,6 +34,7 @@ const engineLiteral = '"' + engine
 const header = `/*
  * IDtoAE v${version} - InDesign to After Effects
  * by Andrew Dean - https://andrewjdean.com
+ * Copyright (c) 2026 Andrew Dean. MIT License - see LICENSE in the repository.
  *
  * Install: put this file in your After Effects "Scripts/ScriptUI Panels" folder,
  * restart After Effects, then open Window > IDtoAE.jsx.

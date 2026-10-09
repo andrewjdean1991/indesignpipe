@@ -1,6 +1,7 @@
 /*
- * IDtoAE v1.0.0 - InDesign to After Effects
+ * IDtoAE v1.1.0 - InDesign to After Effects
  * by Andrew Dean - https://andrewjdean.com
+ * Copyright (c) 2026 Andrew Dean. MIT License - see LICENSE in the repository.
  *
  * Install: put this file in your After Effects "Scripts/ScriptUI Panels" folder,
  * restart After Effects, then open Window > IDtoAE.jsx.
@@ -35,7 +36,7 @@ var IDtoAE = IDtoAE || {};
 
 (function (NS) {
 
-    NS.VERSION = "1.0.0";
+    NS.VERSION = "1.1.0";
     NS.AUTHOR = "Andrew Dean";
     NS.WEBSITE = "https://andrewjdean.com";
     NS.HELP_URL = "https://github.com/andrewjdean1991/indesignpipe#readme";
@@ -827,22 +828,26 @@ var IDtoAE = IDtoAE || {};
         w.spacing = 8;
         w.margins = 10;
 
-        // Header: AD badge, name and version.
+        // Header: "motion vibes" sticker, name and version.
         var head = w.add("group");
         head.orientation = "row";
         head.alignChildren = ["left", "center"];
         head.spacing = 10;
-        var badge = head.add("group");
-        badge.preferredSize = [34, 34];
-        badge.onDraw = function () {
+        var STICKER = "motion vibes";
+        var stickerFont = ScriptUI.newFont("Arial", "BOLD", 13);
+        var sticker = head.add("group");
+        var tw = STICKER.length * 8;
+        try { tw = w.graphics.measureString(STICKER, stickerFont)[0]; } catch (e) {}
+        sticker.preferredSize = [Math.ceil(tw) + 18, 24];
+        sticker.helpTip = IDtoAE.WEBSITE;
+        sticker.onDraw = function () {
             var g = this.graphics, sz = this.size;
             g.newPath();
             g.rectPath(0, 0, sz.width, sz.height);
-            g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0.067, 0.067, 0.067, 1]));
-            var f = ScriptUI.newFont("Arial", "BOLD", 15);
-            var pen = g.newPen(g.PenType.SOLID_COLOR, LIME.concat([1]), 1);
-            var m = g.measureString("AD", f);
-            g.drawString("AD", pen, (sz.width - m[0]) / 2, (sz.height - m[1]) / 2, f);
+            g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, LIME.concat([1])));
+            var pen = g.newPen(g.PenType.SOLID_COLOR, [0.067, 0.067, 0.067, 1], 1);
+            var m = g.measureString(STICKER, stickerFont);
+            g.drawString(STICKER, pen, (sz.width - m[0]) / 2, (sz.height - m[1]) / 2, stickerFont);
         };
         var titles = head.add("group");
         titles.orientation = "column";

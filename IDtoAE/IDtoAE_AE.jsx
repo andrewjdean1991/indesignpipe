@@ -11,7 +11,7 @@ var IDtoAE = IDtoAE || {};
 
 (function (NS) {
 
-    NS.VERSION = "1.0.0";
+    NS.VERSION = "1.1.0";
     NS.AUTHOR = "Andrew Dean";
     NS.WEBSITE = "https://andrewjdean.com";
     NS.HELP_URL = "https://github.com/andrewjdean1991/indesignpipe#readme";
