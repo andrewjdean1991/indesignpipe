@@ -11,7 +11,8 @@ var IDtoAE = IDtoAE || {};
 
 (function (NS) {
 
-    NS.VERSION = "1.1.1";
+    NS.VERSION = "1.2.0";
+    NS.WORDS_MARK = "IDtoAE: letters grouped by word";
     NS.AUTHOR = "Andrew Dean";
     NS.WEBSITE = "https://andrewjdean.com";
     NS.HELP_URL = "https://github.com/andrewjdean1991/indesignpipe#readme";
@@ -83,10 +84,19 @@ var IDtoAE = IDtoAE || {};
     var CAP = { butt: 1, round: 2, square: 3 };
     var JOIN = { miter: 1, round: 2, bevel: 3 };
 
-    function containsImage(node) {
-        if (node.type == "image") return true;
+    // Images and text need layers of their own; a shape layer can't hold them.
+    function needsOwnLayers(node) {
+        if (node.type == "image" || node.type == "text") return true;
         if (node.type == "group") {
-            for (var i = 0; i < node.children.length; i++) if (containsImage(node.children[i])) return true;
+            for (var i = 0; i < node.children.length; i++) if (needsOwnLayers(node.children[i])) return true;
+        }
+        return false;
+    }
+
+    function hasWords(node) {
+        if (node.words) return true;
+        if (node.type == "group") {
+            for (var i = 0; i < node.children.length; i++) if (hasWords(node.children[i])) return true;
         }
         return false;
     }
@@ -193,6 +203,8 @@ var IDtoAE = IDtoAE || {};
         layer.transform.anchorPoint.setValue([0, 0]);
         layer.transform.position.setValue([cx, cy]);
         finishLayer(layer, node, opacity, visible);
+        // Lets Break apart use the real words instead of guessing from spacing.
+        if (hasWords(node)) layer.comment = (layer.comment ? layer.comment + "\n" : "") + NS.WORDS_MARK;
         return layer;
     }
 
@@ -215,13 +227,90 @@ var IDtoAE = IDtoAE || {};
         return layer;
     }
 
+    // ------------------------------------------------------------ text layers
+
+    var KERN = null;
+    function fontInstalled(ps, ctx) {
+        if (ctx.fontCache.hasOwnProperty(ps)) return ctx.fontCache[ps];
+        var ok = true;
+        try { ok = app.fonts.getFontsByPostScriptName(ps).length > 0; } catch (e) {}
+        ctx.fontCache[ps] = ok;
+        return ok;
+    }
+
+    function styleRange(r, run) {
+        r.font = run.font;
+        r.fontSize = run.size;
+        r.applyFill = !!run.fill;
+        if (run.fill) r.fillColor = run.fill;
+        if (run.stroke && run.stroke.color) {
+            r.applyStroke = true;
+            r.strokeColor = run.stroke.color;
+            r.strokeWidth = run.stroke.width;
+        } else r.applyStroke = false;
+        r.tracking = run.tracking;
+        // allCaps/smallCaps are read-only; caps are set through fontCapsOption.
+        try {
+            r.fontCapsOption = run.caps == "all" ? FontCapsOption.FONT_ALL_CAPS
+                             : (run.caps == "small" ? FontCapsOption.FONT_SMALL_CAPS : FontCapsOption.FONT_NORMAL_CAPS);
+        } catch (e) {}
+        r.horizontalScale = run.hscale / 100;
+        r.verticalScale = run.vscale / 100;
+        r.baselineShift = run.baselineShift;
+        try { r.autoKernType = KERN[run.kerning]; } catch (e) {}
+        try { r.ligature = run.ligatures !== false; } catch (e) {}
+    }
+
+    // One point-text layer per InDesign text frame: same text, line breaks,
+    // style runs and baselines.
+    function addTextLayer(comp, node, ctx, opacity, visible) {
+        if (!KERN) KERN = { metrics: AutoKernType.METRIC_KERN, optical: AutoKernType.OPTICAL_KERN, none: AutoKernType.NO_AUTO_KERN };
+        var layer = comp.layers.addText(node.text);
+        layer.name = node.name;
+        var src = layer.property("ADBE Text Properties").property("ADBE Text Document");
+        var td = src.value;
+        td.resetCharStyle();
+        td.resetParagraphStyle();
+        td.justification = node.justification == "center" ? ParagraphJustification.CENTER_JUSTIFY
+                         : (node.justification == "right" ? ParagraphJustification.RIGHT_JUSTIFY : ParagraphJustification.LEFT_JUSTIFY);
+        if (node.runs.length) styleRange(td, node.runs[0]);
+        td.autoLeading = false;
+        src.setValue(td);
+
+        td = src.value;
+        for (var i = 0; i < node.runs.length; i++) {
+            var run = node.runs[i];
+            styleRange(td.characterRange(run.start, run.start + run.length), run);
+            if (!fontInstalled(run.font, ctx)) {
+                ctx.warn("Font '" + (run.fontName || run.font) + "' isn't installed: '" + node.name + "' uses a substitute");
+            }
+        }
+        // Leading from the real distance between baselines (in the frame's own scale).
+        var vs = node.scale[1] / 100 || 1;
+        for (var l = 0; l < node.lines.length; l++) {
+            var ln = node.lines[l];
+            if (ln.end <= ln.start) continue;
+            var gap = l > 0 ? node.lines[l].baseline - node.lines[l - 1].baseline
+                            : (node.lines.length > 1 ? node.lines[1].baseline - node.lines[0].baseline : node.runs[0].size * 1.2 * vs);
+            td.characterRange(ln.start, ln.end).leading = gap / vs;
+        }
+        src.setValue(td);
+
+        layer.transform.anchorPoint.setValue([0, 0]);
+        layer.transform.position.setValue(node.position);
+        if (node.scale[0] != 100 || node.scale[1] != 100) layer.transform.scale.setValue(node.scale);
+        finishLayer(layer, node, opacity, visible);
+        return layer;
+    }
+
     // Layers are added back-to-front: each new AE layer lands on top.
     function addNode(comp, node, ctx, parentOpacity, parentVisible) {
         var opacity = (node.opacity == null ? 100 : node.opacity) * parentOpacity / 100;
         var visible = parentVisible && node.visible !== false;
         if (node.type == "image") return addImageLayer(comp, node, ctx, opacity, visible);
-        if (node.type == "group" && containsImage(node)) {
-            // Shape layers can't hold footage, so split this group into separate layers.
+        if (node.type == "text") return addTextLayer(comp, node, ctx, opacity, visible);
+        if (node.type == "group" && needsOwnLayers(node)) {
+            // Shape layers can't hold footage or text, so split this group into separate layers.
             for (var i = 0; i < node.children.length; i++) addNode(comp, node.children[i], ctx, opacity, visible);
             return null;
         }
@@ -308,6 +397,12 @@ var IDtoAE = IDtoAE || {};
         return comp;
     };
 
+    function uniq(list) {
+        var seen = {}, out = [];
+        for (var i = 0; i < list.length; i++) if (!seen[list[i]]) { seen[list[i]] = 1; out.push(list[i]); }
+        return out;
+    }
+
     function uniqueFolderName(base) {
         var names = {};
         for (var i = 1; i <= app.project.numItems; i++) names[app.project.item(i).name] = true;
@@ -325,11 +420,10 @@ var IDtoAE = IDtoAE || {};
      * Ask InDesign (over BridgeTalk) to export an .indd. Returns the manifest path.
      * @param {String} enginePath  path to IDtoAE_InDesign.jsx
      * @param {String} inddPath
-     * @param {Number} imageScale
+     * @param {Object} opts  { imageScale, swatchesOnly, liveText }
      * @param {Function} [status]  called with progress messages
-     * @param {Boolean} [swatchesOnly]  only export the swatches (fast)
      */
-    NS.exportFromInDesign = function (enginePath, inddPath, imageScale, status, swatchesOnly) {
+    NS.exportFromInDesign = function (enginePath, inddPath, opts, status) {
         status = status || function () {};
         var engine = File(enginePath);
         if (!engine.exists) throw new Error("Missing " + enginePath + "\nReinstall the IDtoAE folder next to IDtoAE.jsx.");
@@ -348,8 +442,9 @@ var IDtoAE = IDtoAE || {};
         // InDesign loads the engine from disk: sending its source in the message
         // body mangles regex escapes in transit.
         bt.body = "var IDtoAE_NO_AUTORUN = true;\n$.evalFile(File(" + quote(engine.fsName) + "));\n" +
-                  "IDtoAE.exportDocument(" + quote(inddPath) + ", { imageScale: " + Number(imageScale) +
-                  ", swatchesOnly: " + (swatchesOnly ? "true" : "false") + " });";
+                  "IDtoAE.exportDocument(" + quote(inddPath) + ", { imageScale: " + Number(opts.imageScale || 2) +
+                  ", swatchesOnly: " + (opts.swatchesOnly ? "true" : "false") +
+                  ", liveText: " + (opts.liveText ? "true" : "false") + " });";
         var result = null;
         bt.onResult = function (msg) { result = String(msg.body); };
         bt.onError = function (msg) { result = "ERROR|" + msg.body; };
@@ -392,7 +487,7 @@ var IDtoAE = IDtoAE || {};
             imagesFolder.parentFolder = root;
 
             var ctx = {
-                baseFolder: mf.parent.fsName, imagesFolder: imagesFolder, footage: {},
+                baseFolder: mf.parent.fsName, imagesFolder: imagesFolder, footage: {}, fontCache: {},
                 warnings: [], warn: function (s) { this.warnings.push(s); }
             };
             var comps = [];
@@ -414,7 +509,7 @@ var IDtoAE = IDtoAE || {};
             if (opts.onProgress) opts.onProgress(m.pages.length, m.pages.length, "Done");
             if (!imagesFolder.numItems) imagesFolder.remove();
             if (!compsFolder.numItems) compsFolder.remove();
-            return { folder: root, comps: comps, warnings: (m.warnings || []).concat(ctx.warnings) };
+            return { folder: root, comps: comps, warnings: (m.warnings || []).concat(uniq(ctx.warnings)) };
         } finally {
             app.endUndoGroup();
         }

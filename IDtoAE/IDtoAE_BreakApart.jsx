@@ -89,7 +89,7 @@ var IDtoAE = IDtoAE || {};
 
     // Collects every group that directly holds paths as one "shape" (leaf).
     // Leaves come out front-to-back (AE draws the top of the contents list in front).
-    function collect(contents, m, opacity, enabled, name, out, problems) {
+    function collect(contents, m, opacity, enabled, name, out, problems, parentKey, parentName) {
         var paths = [], fill = null, stroke = null;
         for (var i = 1; i <= contents.numProperties; i++) {
             var p = contents.property(i), mn = p.matchName;
@@ -97,7 +97,8 @@ var IDtoAE = IDtoAE || {};
                 var tg = p.property("ADBE Vector Transform Group");
                 var m2 = mul(m, groupMatrix(tg, problems, "'" + p.name + "'"));
                 var op = opacity * tg.property("ADBE Vector Group Opacity").value / 100;
-                collect(p.property("ADBE Vectors Group"), m2, op, enabled && p.enabled, p.name, out, problems);
+                collect(p.property("ADBE Vectors Group"), m2, op, enabled && p.enabled, p.name, out, problems,
+                        (parentKey || "") + "/" + i, name);
             } else if (mn == "ADBE Vector Shape - Group") {
                 var sp = p.property("ADBE Vector Shape");
                 if (isAnimated(sp)) problems.push("'" + p.name + "' has an animated path");
@@ -120,7 +121,8 @@ var IDtoAE = IDtoAE || {};
                 }
             }
             out.push({ name: name, paths: paths, fill: fill, stroke: stroke, opacity: opacity,
-                       enabled: enabled, bounds: b, z: out.length });
+                       enabled: enabled, bounds: b, z: out.length,
+                       group: (parentKey || "").replace(/\/\d+$/, ""), groupName: parentName || "" });
         }
     }
 
@@ -134,7 +136,7 @@ var IDtoAE = IDtoAE || {};
 
     // Groups leaves into lines (by vertical overlap) and words (by horizontal gaps).
     // Sets leaf.rank (reading order) and leaf.word (word number within this layer).
-    function readingOrder(leaves) {
+    function readingOrder(leaves, knownWords) {
         var byY = leaves.slice().sort(function (a, b) {
             return (a.bounds[1] + a.bounds[3]) - (b.bounds[1] + b.bounds[3]);
         });
@@ -174,6 +176,15 @@ var IDtoAE = IDtoAE || {};
                 rightEdge = Math.max(rightEdge, items[q].bounds[2]);
                 items[q].rank = rank++;
                 items[q].word = word;
+            }
+        }
+        if (knownWords) {
+            // Number the InDesign words in reading order (letters share their word group).
+            var sorted = leaves.slice().sort(function (a, b) { return a.rank - b.rank; }), ids = {}, n = 0;
+            for (var s = 0; s < sorted.length; s++) {
+                var key = sorted[s].group;
+                if (!ids.hasOwnProperty(key)) ids[key] = ++n;
+                sorted[s].word = ids[key];
             }
         }
     }
@@ -325,7 +336,8 @@ var IDtoAE = IDtoAE || {};
                 if (!leaves.length) { skipped.push("'" + src.name + "': no shapes found"); continue; }
                 if (leaves.length == 1) { unchanged++; continue; } // already a single shape
 
-                readingOrder(leaves);
+                var knownWords = String(src.comment).indexOf(NS.WORDS_MARK || "IDtoAE: letters grouped by word") >= 0;
+                readingOrder(leaves, knownWords);
                 var ordered = orderLeaves(leaves, opts.readingOrder !== false);
                 var nWords = 0;
                 for (var w = 0; w < leaves.length; w++) nWords = Math.max(nWords, leaves[w].word);
@@ -333,7 +345,8 @@ var IDtoAE = IDtoAE || {};
                 // Created top-first, each placed just above the source layer.
                 for (var k = 0; k < ordered.length; k++) {
                     var leaf = ordered[k];
-                    var name = src.name + " " + (nWords > 1 ? "w" + leaf.word + "." : "") + pad(k + 1, 2);
+                    var name = knownWords ? pad(k + 1, 2) + " " + leaf.groupName + " - " + leaf.name
+                             : src.name + " " + (nWords > 1 ? "w" + leaf.word + "." : "") + pad(k + 1, 2);
                     var nl = addLeafLayer(comp, src, leaf, name);
                     if (opts.colorWords) nl.label = WORD_LABELS[(wordCount + leaf.word - 1) % WORD_LABELS.length];
                     nl.moveBefore(src);

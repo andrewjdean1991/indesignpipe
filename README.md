@@ -5,7 +5,7 @@
 An After Effects panel that turns an InDesign document into one comp per page,
 with every shape and every letter as a native, animatable **shape layer**.
 
-- Live text is outlined automatically, so type arrives as shapes, with each letter's outlines as separate paths
+- **Live text stays editable**: InDesign text frames become After Effects text layers with the same fonts, sizes, colours, tracking and line breaks. Alternatively, convert text to shapes, with one shape per letter, grouped and named by word
 - One layer per top-level InDesign item; InDesign groups become nested shape groups
 - Colours are converted to **sRGB** through the document's own CMYK profile, so they match InDesign's sRGB output
 - A **swatch comp** of the document's named swatches, in sRGB
@@ -87,7 +87,8 @@ File Explorer address bar). From a clone of the repository, you can instead righ
 ## Use
 
 1. Click **Choose...** and pick the `.indd` file.
-2. Set the frame rate, comp duration and image resolution.
+2. Set the frame rate, comp duration and image resolution, and choose what happens to
+   live text (see below).
 3. Click **Build comps**. InDesign exports in the background (about 1–2 minutes for a
    100-page document) and After Effects builds the comps (a few seconds).
 
@@ -101,6 +102,26 @@ PNGs in it. **Rebuild from previous export...** builds comps from an existing
 
 You can also run `IDtoAE/IDtoAE_InDesign.jsx` from this repository on its own, from
 InDesign's Scripts panel, to produce the export folder.
+
+## Text: keep editable or convert to shapes
+
+**Keep editable** (default): each live InDesign text frame becomes one AE text layer,
+with the same text, line breaks, fonts, sizes, colours, tracking, leading, caps,
+horizontal and vertical scale, baseline shift, kerning mode and ligatures, placed on
+InDesign's own baselines. Mixed styles within a frame are kept. Each animator needs the
+fonts installed; the panel lists any that are missing, and After Effects substitutes them.
+
+Some frames can't be reproduced as an AE text layer, so they're converted to shapes
+automatically, with a note: rotated or skewed frames, multi-column frames, vertical text,
+and frames with tables or inline graphics. Justified text is set flush, and
+underline/strikethrough are dropped.
+
+**Convert to shapes**: text is outlined, and each frame becomes word groups of letter
+shapes named after the letters (`This` > `Th`, `i`, `s`; ligatures such as "Th" stay one
+shape). **Break apart** then uses these real words for its order and label colours.
+
+Text that was already outlined in InDesign has no word information, so Break apart detects
+words from the letter spacing instead.
 
 ## Swatch comp
 
@@ -128,9 +149,10 @@ Layers that hold a single shape are left as they are. It's a single undo step.
 - **Reading order**: layers are ordered left to right and top to bottom, with the first
   letter at the top of the timeline, ready for Sequence Layers or offset animation.
   Shapes that really overlap keep their original front-to-back order.
-- **Label colour per word**: words are detected from the letter spacing (a word
-  space is much wider than the gap between letters), and each word gets its own label
-  colour. Layer names carry the word and position, for example `... w2.05`.
+- **Label colour per word**: each word gets its own label colour. Text converted to shapes
+  by the panel uses InDesign's real words, with layers named like `06 more - m`. Text that
+  was already outlined in InDesign gets its words from the letter spacing (a word space is
+  much wider than the gap between letters), with layers named like `... w2.05`.
 
 Layers with animated transforms, effects, masks or 3D are skipped and listed.
 

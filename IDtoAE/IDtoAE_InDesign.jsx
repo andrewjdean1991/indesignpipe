@@ -115,7 +115,7 @@ var IDtoAE = IDtoAE || {};
         var key = swatch.id + "_" + t;
         if (ctx.colorCache[key]) return ctx.colorCache[key];
 
-        var rgb;
+        var rgb, tinted = false;
         var vals = swatch.colorValue, space = swatch.space;
         if (space == ColorSpace.RGB) {
             rgb = [vals[0] / 255, vals[1] / 255, vals[2] / 255];
@@ -124,9 +124,17 @@ var IDtoAE = IDtoAE || {};
         } else if (space == ColorSpace.CMYK) {
             // app.colorTransform takes and returns 0-1 values and uses the
             // document's colour management (same result as InDesign's RGB export).
-            var cmyk = [vals[0] / 100, vals[1] / 100, vals[2] / 100, vals[3] / 100];
+            // A tint scales the inks, as InDesign does.
+            var k = t / 100;
+            var cmyk = [vals[0] / 100 * k, vals[1] / 100 * k, vals[2] / 100 * k, vals[3] / 100 * k];
+            tinted = true;
             try {
-                rgb = app.colorTransform(cmyk, ColorSpace.CMYK, ColorSpace.RGB);
+                if (cmyk[0] == 0 && cmyk[1] == 0 && cmyk[2] == 0 && cmyk[3] == 1) {
+                    // InDesign shows and exports 100% K as rich black (0,0,0).
+                    rgb = [0, 0, 0];
+                } else {
+                    rgb = app.colorTransform(cmyk, ColorSpace.CMYK, ColorSpace.RGB);
+                }
             } catch (e) {
                 rgb = [(1 - cmyk[0]) * (1 - cmyk[3]), (1 - cmyk[1]) * (1 - cmyk[3]), (1 - cmyk[2]) * (1 - cmyk[3])];
                 ctx.warn(where + ": colour '" + swatch.name + "' converted without colour management");
@@ -137,7 +145,7 @@ var IDtoAE = IDtoAE || {};
             rgb = [0, 0, 0];
             ctx.warn(where + ": could not convert colour '" + swatch.name + "'");
         }
-        if (t != 100) {
+        if (t != 100 && !tinted) {
             for (var i = 0; i < 3; i++) rgb[i] = 1 - (t / 100) * (1 - rgb[i]);
         }
         for (var j = 0; j < 3; j++) rgb[j] = r3(Math.max(0, Math.min(1, rgb[j])));
@@ -273,13 +281,218 @@ var IDtoAE = IDtoAE || {};
         return node;
     }
 
+    // ------------------------------------------------------------------ text
+
+    var GLYPH_LABEL = "IDtoAE_glyphs:";
+
+    // Whether a text frame can become an After Effects text layer as-is.
+    function liveTextProblem(tf) {
+        try { if (tf.absoluteRotationAngle != 0 || tf.absoluteShearAngle != 0) return "it is rotated or skewed"; } catch (e) {}
+        try { if (tf.textFramePreferences.textColumnCount > 1) return "it has several columns"; } catch (e) {}
+        try { if (tf.parentStory.storyPreferences.storyOrientation == StoryHorizontalOrVertical.VERTICAL) return "it is vertical text"; } catch (e) {}
+        try { if (tf.tables.length) return "it contains a table"; } catch (e) {}
+        try { if (tf.allPageItems.length) return "it contains inline graphics"; } catch (e) {}
+        try { if (!tf.lines.length) return "it has no visible text"; } catch (e) {}
+        return null;
+    }
+
+    function textOf(v) {
+        // Special characters come back as enumeration values, not strings.
+        if (typeof v == "string") return v;
+        if (v == SpecialCharacters.EM_DASH) return "\u2014";
+        if (v == SpecialCharacters.EN_DASH) return "\u2013";
+        if (v == SpecialCharacters.BULLET_CHARACTER) return "\u2022";
+        if (v == SpecialCharacters.SINGLE_LEFT_QUOTE) return "\u2018";
+        if (v == SpecialCharacters.SINGLE_RIGHT_QUOTE) return "\u2019";
+        if (v == SpecialCharacters.DOUBLE_LEFT_QUOTE) return "\u201C";
+        if (v == SpecialCharacters.DOUBLE_RIGHT_QUOTE) return "\u201D";
+        if (v == SpecialCharacters.ELLIPSIS_CHARACTER) return "\u2026";
+        if (v == SpecialCharacters.COPYRIGHT_SYMBOL) return "\u00A9";
+        if (v == SpecialCharacters.REGISTERED_TRADEMARK) return "\u00AE";
+        if (v == SpecialCharacters.TRADEMARK_SYMBOL) return "\u2122";
+        return " ";
+    }
+
+    var JUST = null;
+    function justName(j) {
+        if (!JUST) {
+            JUST = {};
+            JUST[Justification.LEFT_ALIGN] = "left"; JUST[Justification.CENTER_ALIGN] = "center";
+            JUST[Justification.RIGHT_ALIGN] = "right"; JUST[Justification.LEFT_JUSTIFIED] = "left*";
+            JUST[Justification.CENTER_JUSTIFIED] = "center*"; JUST[Justification.RIGHT_JUSTIFIED] = "right*";
+            JUST[Justification.FULLY_JUSTIFIED] = "left*";
+        }
+        return JUST[j] || "left";
+    }
+
+    function kernName(k) {
+        k = String(k || "");
+        if (/optical/i.test(k)) return "optical";
+        if (/^none$|^\s*$/i.test(k)) return "none";
+        return "metrics";
+    }
+
+    // A live text frame as one AE point-text layer: text with explicit line
+    // breaks, style runs, and the baseline of every line.
+    function textNode(tf, ctx, where) {
+        var lines = tf.lines.everyItem().getElements();
+        var hs = tf.absoluteHorizontalScale / 100, vs = tf.absoluteVerticalScale / 100;
+        var text = "", runs = [], lineInfo = [];
+        var just = justName(lines[0].justification);
+        if (just.indexOf("*") >= 0) { just = just.replace("*", ""); ctx.warn(where + ": justified text set " + just + "-aligned"); }
+
+        for (var i = 0; i < lines.length; i++) {
+            var ln = lines[i];
+            if (i) text += "\r";
+            var start = text.length;
+            var tsrs = ln.textStyleRanges.everyItem().getElements();
+            for (var r = 0; r < tsrs.length; r++) {
+                var t = tsrs[r];
+                var str = textOf(t.contents).replace(/[\r\n\u2028\u0003\u0018\u0019\u001A\u001B]+$/, "");
+                if (!str.length) continue;
+                var font = "", fontName = "";
+                try { font = t.appliedFont.postscriptName; fontName = t.appliedFont.name.replace(/\t/g, " "); }
+                catch (e) { font = fontName = String(t.appliedFont); }
+                var caps = "normal";
+                if (t.capitalization == Capitalization.ALL_CAPS) caps = "all";
+                else if (t.capitalization == Capitalization.SMALL_CAPS || t.capitalization == Capitalization.CAP_TO_SMALL_CAP) caps = "small";
+                var stroke = null;
+                try {
+                    if (t.strokeWeight > 0 && t.strokeColor.name != "None") {
+                        stroke = { color: colorToRGB(t.strokeColor, t.strokeTint, ctx, where), width: r3(t.strokeWeight) };
+                    }
+                } catch (e) {}
+                try { if (t.underline || t.strikeThru) ctx.warn(where + ": underline/strikethrough isn't available in AE text"); } catch (e) {}
+                runs.push({
+                    start: text.length, length: str.length,
+                    font: font, fontName: fontName, size: r3(t.pointSize),
+                    fill: colorToRGB(t.fillColor, t.fillTint, ctx, where), stroke: stroke,
+                    tracking: r3(t.tracking), caps: caps,
+                    hscale: r3(t.horizontalScale), vscale: r3(t.verticalScale),
+                    baselineShift: r3(t.baselineShift), kerning: kernName(t.kerningMethod),
+                    ligatures: !!t.ligatures
+                });
+                text += str;
+            }
+            var x0 = ln.horizontalOffset, x1 = ln.endHorizontalOffset;
+            var anchor = just == "center" ? (x0 + x1) / 2 : (just == "right" ? x1 : x0);
+            lineInfo.push({ start: start, end: text.length, baseline: r3(ln.baseline), x: r3(anchor) });
+        }
+        for (var k = 1; k < lineInfo.length; k++) {
+            if (Math.abs(lineInfo[k].x - lineInfo[0].x) > 1) {
+                ctx.warn(where + ": lines are indented differently; check line positions");
+                break;
+            }
+        }
+        var name = text.replace(/\s+/g, " ").substr(0, 40);
+        return {
+            type: "text", name: name, text: text, runs: runs, lines: lineInfo,
+            justification: just, scale: [r3(hs * 100), r3(vs * 100)],
+            position: [lineInfo[0].x, lineInfo[0].baseline]
+        };
+    }
+
+    // Letter boxes recorded before a frame is outlined, so the outline can be
+    // split into one shape per letter afterwards.
+    function glyphMap(tf) {
+        var out = [], word = 0, inWord = false;
+        var lines = tf.lines.everyItem().getElements();
+        for (var l = 0; l < lines.length; l++) {
+            var chars = lines[l].characters;
+            if (!chars.length) continue;
+            var c = chars.everyItem();
+            var con = c.contents, x0 = c.horizontalOffset, x1 = c.endHorizontalOffset;
+            var base = c.baseline, asc = c.ascent, desc = c.descent;
+            if (!(con instanceof Array)) { con = [con]; x0 = [x0]; x1 = [x1]; base = [base]; asc = [asc]; desc = [desc]; }
+            inWord = false;
+            for (var i = 0; i < con.length; i++) {
+                var ch = textOf(con[i]);
+                if (/^\s*$/.test(ch)) { inWord = false; continue; }
+                if (!inWord) { word++; inWord = true; }
+                out.push({ ch: ch, w: word, l: l, x0: r3(Math.min(x0[i], x1[i])), x1: r3(Math.max(x0[i], x1[i])),
+                           top: r3(base[i] - asc[i]), bottom: r3(base[i] + desc[i]) });
+            }
+        }
+        return out;
+    }
+
+    // Splits an outlined text polygon into word groups of letter shapes.
+    function splitGlyphs(item, base, glyphs, ctx) {
+        var paths = base.paths, byGlyph = [], boxes = [], g, i;
+        for (g = 0; g < glyphs.length; g++) byGlyph.push([]);
+        for (i = 0; i < paths.length; i++) {
+            var pts = paths[i].pts, bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+            for (var k = 0; k < pts.length; k++) {
+                bx0 = Math.min(bx0, pts[k][0]); bx1 = Math.max(bx1, pts[k][0]);
+                by0 = Math.min(by0, pts[k][1]); by1 = Math.max(by1, pts[k][1]);
+            }
+            var cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2, best = -1, bestD = Infinity;
+            for (g = 0; g < glyphs.length; g++) {
+                var G = glyphs[g];
+                var dx = cx < G.x0 ? G.x0 - cx : (cx > G.x1 ? cx - G.x1 : 0);
+                var dy = cy < G.top ? G.top - cy : (cy > G.bottom ? cy - G.bottom : 0);
+                var d = dx + dy * 4; // lines matter more than columns
+                if (d < bestD) { bestD = d; best = g; }
+            }
+            if (best < 0) return null;
+            byGlyph[best].push(paths[i]);
+            var B = boxes[best];
+            if (!B) boxes[best] = [bx0, bx1];
+            else { B[0] = Math.min(B[0], bx0); B[1] = Math.max(B[1], bx1); }
+        }
+
+        // A ligature (Th, fi...) is one outline spread over several letters, so
+        // some letters get no outline: give their name to the neighbour whose
+        // outline covers them.
+        var names = [];
+        for (g = 0; g < glyphs.length; g++) names.push(glyphs[g].ch);
+        for (g = 0; g < glyphs.length; g++) {
+            if (byGlyph[g].length) continue;
+            var mid = (glyphs[g].x0 + glyphs[g].x1) / 2;
+            for (var n = g + 1; n < glyphs.length && glyphs[n].w == glyphs[g].w; n++) {
+                if (byGlyph[n].length) {
+                    if (boxes[n][0] <= mid) names[n] = glyphs[g].ch + names[n];
+                    break;
+                }
+            }
+            if (n >= glyphs.length || glyphs[n].w != glyphs[g].w || boxes[n][0] > mid) {
+                for (var q = g - 1; q >= 0 && glyphs[q].w == glyphs[g].w; q--) {
+                    if (byGlyph[q].length) { if (boxes[q][1] >= mid) names[q] += glyphs[g].ch; break; }
+                }
+            }
+        }
+
+        // `words` tells AE (and Break apart) that the children are real words.
+        var root = { type: "group", name: base.name, children: [], words: true }, words = {};
+        for (g = 0; g < glyphs.length; g++) {
+            var key = "w" + glyphs[g].w;
+            if (!words[key]) {
+                words[key] = { type: "group", name: "", children: [] };
+                root.children.push(words[key]);
+            }
+            words[key].name += glyphs[g].ch;
+            if (byGlyph[g].length) {
+                words[key].children.push({ type: "shape", name: names[g], paths: byGlyph[g], fill: base.fill, stroke: base.stroke });
+            }
+        }
+        return root;
+    }
+
     function convertItem(item, ctx) {
         item = item.getElements()[0];
         var kind = item.constructor.name;
         var where = "page " + ctx.pageName + " / " + kind + (item.name ? " '" + item.name + "'" : "");
         var node;
 
-        if (kind == "Group") {
+        if (kind == "TextFrame") {
+            // Only frames kept live reach here (the rest were outlined).
+            node = textNode(item, ctx, where);
+            var bgFill = colorToRGB(item.fillColor, item.fillTint, ctx, where), bgStroke = strokeOf(item, ctx, where);
+            if (bgFill || bgStroke) {
+                var bg = { type: "shape", name: node.name + " frame", paths: pathsOf(item), fill: bgFill, stroke: bgStroke, visible: true, opacity: 100, blend: "NORMAL" };
+                node = { type: "group", name: node.name, children: [bg, node] };
+            }
+        } else if (kind == "Group") {
             node = { type: "group", name: labelFor(item, kind), children: [] };
             var kids = item.pageItems.everyItem().getElements();
             // collection order is front-to-back; manifest children are back-to-front
@@ -308,6 +521,12 @@ var IDtoAE = IDtoAE || {};
                 }
             } catch (e) {}
             if (!node.fill && !node.stroke) return null; // invisible frame, nothing to draw
+            var lbl = "";
+            try { lbl = item.label; } catch (e) {}
+            if (lbl && lbl.indexOf(GLYPH_LABEL) == 0) {
+                var split = splitGlyphs(item, node, eval("(" + lbl.substr(GLYPH_LABEL.length) + ")"), ctx);
+                if (split) node = split;
+            }
         }
         commonProps(item, node, ctx, where);
         try { node.idLayer = item.itemLayer.name; } catch (e) {}
@@ -375,8 +594,10 @@ var IDtoAE = IDtoAE || {};
         }
     }
 
-    function outlineText(doc, ctx) {
-        var n = 0;
+    // Outlines text frames (all of them, or with liveText only those AE can't
+    // reproduce). Returns { outlined, live }.
+    function outlineText(doc, ctx, liveText) {
+        var n = 0, live = 0;
         var items = doc.allPageItems;
         for (var i = items.length - 1; i >= 0; i--) {
             var it = items[i];
@@ -385,15 +606,27 @@ var IDtoAE = IDtoAE || {};
             try { txt = it.contents.replace(/\s+/g, " ").substr(0, 40); } catch (e) {}
             try { it.locked = false; } catch (e) {}
             if (!txt || txt == " ") { try { it.remove(); } catch (e) {} continue; }
+            if (liveText) {
+                var why = liveTextProblem(it);
+                if (!why) { live++; continue; }
+                ctx.warn("Text '" + txt + "' converted to shapes because " + why);
+            }
+            var glyphs = null;
+            try { glyphs = toJSON(glyphMap(it)); } catch (e) {}
             try {
                 var res = it.createOutlines(true);
-                for (var r = 0; r < res.length; r++) { try { res[r].name = txt; } catch (e) {} }
+                for (var r = 0; r < res.length; r++) {
+                    try { res[r].name = txt; } catch (e) {}
+                    if (!glyphs) continue;
+                    var polys = res[r].constructor.name == "Group" ? res[r].allPageItems : [res[r]];
+                    for (var q = 0; q < polys.length; q++) { try { polys[q].label = GLYPH_LABEL + glyphs; polys[q].name = txt; } catch (e) {} }
+                }
                 n++;
             } catch (e) {
                 ctx.warn("Could not outline text '" + txt + "': " + e);
             }
         }
-        return n;
+        return { outlined: n, live: live };
     }
 
     function sortedPageItems(page) {
@@ -428,7 +661,7 @@ var IDtoAE = IDtoAE || {};
     /**
      * Export an InDesign document for After Effects.
      * @param {String} inddPath  path to the .indd
-     * @param {Object} [opts]    { outFolder, imageScale, swatchesOnly }
+     * @param {Object} [opts]    { outFolder, imageScale, swatchesOnly, liveText }
      * @returns {String} "OK|<manifest path>|<pages>|<warnings>" or "ERROR|<message>"
      */
     NS.exportDocument = function (inddPath, opts) {
@@ -509,7 +742,7 @@ var IDtoAE = IDtoAE || {};
 
             relinkMissing(doc, inddFolder, ctx);
             ctx.mark("relinked");
-            var outlined = outlineText(doc, ctx);
+            var textResult = outlineText(doc, ctx, !!opts.liveText);
             ctx.mark("outlined");
 
             with (app.pngExportPreferences) {
@@ -552,7 +785,8 @@ var IDtoAE = IDtoAE || {};
                 document: baseName,
                 exported: new Date().toString(),
                 imageScale: scale,
-                outlinedTextFrames: outlined,
+                outlinedTextFrames: textResult.outlined,
+                liveTextFrames: textResult.live,
                 timingsMs: ctx.timings,
                 pages: pages,
                 swatches: swatches,

@@ -86,6 +86,13 @@
         var fpsTxt = numRow("Frame rate (fps)", getSetting("fps", "25"));
         var durTxt = numRow("Duration (sec)", getSetting("duration", "5"));
         var scaleTxt = numRow("Image resolution (x)", getSetting("imageScale", "2"));
+        var textGrp = optGrp.add("group");
+        var textLbl = textGrp.add("statictext", undefined, "Text");
+        textLbl.preferredSize.width = 110;
+        var textDrop = textGrp.add("dropdownlist", undefined, ["Keep editable", "Convert to shapes"]);
+        textDrop.selection = getSetting("liveText", "true") == "true" ? 0 : 1;
+        textDrop.helpTip = "Keep editable: live InDesign text becomes AE text layers (same fonts, sizes and line breaks).\n" +
+                           "Convert to shapes: text is outlined, one shape per letter, ready for Break apart.";
         var swatchChk = optGrp.add("checkbox", undefined, "Swatch comp (sRGB)");
         swatchChk.value = getSetting("swatches", "true") == "true";
 
@@ -132,8 +139,10 @@
             var fps = parseFloat(fpsTxt.text), dur = parseFloat(durTxt.text), sc = parseFloat(scaleTxt.text);
             if (!(fps > 0) || !(dur > 0) || !(sc > 0)) throw new Error("Frame rate, duration and image resolution must be positive numbers.");
             setSetting("fps", fps); setSetting("duration", dur); setSetting("imageScale", sc);
+            var live = textDrop.selection.index == 0;
             setSetting("swatches", swatchChk.value);
-            return { fps: fps, duration: dur, imageScale: sc, swatches: swatchChk.value };
+            setSetting("liveText", live);
+            return { fps: fps, duration: dur, imageScale: sc, swatches: swatchChk.value, liveText: live };
         }
 
         function build(manifestPath, opts) {
@@ -158,7 +167,7 @@
                 if (!pathTxt.text || !f.exists) throw new Error("Choose an InDesign (.indd) file first.");
                 setSetting("lastFile", f.fsName);
                 var opts = readOpts();
-                var manifest = IDtoAE.exportFromInDesign(IDtoAE.enginePath(SCRIPT_FOLDER), f.fsName, opts.imageScale, setStatus);
+                var manifest = IDtoAE.exportFromInDesign(IDtoAE.enginePath(SCRIPT_FOLDER), f.fsName, opts, setStatus);
                 build(manifest, opts);
             } catch (e) {
                 setStatus("Stopped.");
@@ -173,7 +182,8 @@
                 setSetting("lastFile", f.fsName);
                 var opts = readOpts();
                 opts.swatches = true;
-                var manifest = IDtoAE.exportFromInDesign(IDtoAE.enginePath(SCRIPT_FOLDER), f.fsName, opts.imageScale, setStatus, true);
+                opts.swatchesOnly = true;
+                var manifest = IDtoAE.exportFromInDesign(IDtoAE.enginePath(SCRIPT_FOLDER), f.fsName, opts, setStatus);
                 build(manifest, opts);
             } catch (e) {
                 setStatus("Stopped.");
