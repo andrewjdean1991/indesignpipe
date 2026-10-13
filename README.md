@@ -11,7 +11,7 @@ with every shape and every letter as a native, animatable **shape layer**.
 - A **swatch comp** of the document's named swatches, in sRGB
 - **Pages** field: build only the pages you need, for example the 4 a client just updated
 - **Export SVG**: one SVG per page for Illustrator or Blender, with every letter and shape as its own named path
-- **Break apart** splits pages into one layer per letter, in reading order, with a label colour per word
+- **Break apart** splits pages into one layer per letter, in reading order, with a label colour per word, and **Merge** puts them back into one layer with a group per letter or word
 - Placed images (JPG, WebP, PDF pages, and so on) come in as cropped transparent PNGs at 2x resolution
 - Items on hidden InDesign layers come in switched off
 - The original `.indd` is never modified, because the export runs on a temporary copy
@@ -186,6 +186,21 @@ Layers that hold a single shape are left as they are. It's a single undo step.
   much wider than the gap between letters), with layers named like `... w2.05`.
 
 Layers with animated transforms, effects, masks or 3D are skipped and listed.
+
+## Merge (back into one layer)
+
+Select shape layers in a comp and click **Merge selected layers**. They become one shape
+layer, with one group per original layer in the same front-to-back order. Each layer's anchor
+point, position, scale, rotation and opacity move onto its group, so nothing moves on screen,
+and every letter still pivots around its own centre. It's a single undo step.
+
+- **Merge: one group per word** (on by default) puts each word's letters in a word group that
+  pivots around the word's centre, so you can animate per word or per letter on a single layer.
+  Words come from the Break apart names (`06 more - m`), or else from runs of the same label colour.
+  With known words, the merged layer is named after the text (`This is more text`).
+- A merged layer can be broken apart again, and keeps its words.
+- Layers that can't merge without moving are left out and listed: animated transforms,
+  parented layers, effects, masks, 3D and non-shape layers. Layer blend modes aren't kept.
 
 ## What doesn't carry over
 

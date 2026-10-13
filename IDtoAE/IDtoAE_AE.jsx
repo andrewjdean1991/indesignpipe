@@ -11,7 +11,7 @@ var IDtoAE = IDtoAE || {};
 
 (function (NS) {
 
-    NS.VERSION = "1.3.0";
+    NS.VERSION = "1.4.0";
     NS.WORDS_MARK = "IDtoAE: letters grouped by word";
     NS.AUTHOR = "Andrew Dean";
     NS.WEBSITE = "https://andrewjdean.com";

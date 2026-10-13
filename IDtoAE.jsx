@@ -113,7 +113,7 @@
         var rebuildBtn = w.add("button", undefined, "Rebuild from previous export...");
         var svgBtn = w.add("button", undefined, "Export SVG...");
         svgBtn.helpTip = "Saves one SVG per page (text as outlines, one path per letter) for Illustrator or Blender.";
-        var splitGrp = w.add("panel", undefined, "Break apart");
+        var splitGrp = w.add("panel", undefined, "Break apart & merge");
         splitGrp.orientation = "column";
         splitGrp.alignChildren = ["fill", "top"];
         var orderChk = splitGrp.add("checkbox", undefined, "Reading order (left to right, top to bottom)");
@@ -122,6 +122,10 @@
         colorChk.value = getSetting("colorWords", "true") == "true";
         var splitBtn = splitGrp.add("button", undefined, "Break apart selected layers");
         splitBtn.helpTip = "Every shape in the selected layers becomes its own layer, with its anchor point at its centre.";
+        var byWordChk = splitGrp.add("checkbox", undefined, "Merge: one group per word");
+        byWordChk.value = getSetting("mergeByWord", "true") == "true";
+        var mergeBtn = splitGrp.add("button", undefined, "Merge selected layers");
+        mergeBtn.helpTip = "Combines the selected shape layers into one layer, one group per layer, without moving anything.";
 
         var status = w.add("statictext", undefined, "Choose an .indd file, then Build comps.", { multiline: true });
         status.preferredSize.height = 44;
@@ -248,6 +252,18 @@
                 setStatus("Split into " + res.layers + " layers" + (colorChk.value ? " (" + res.words + " words)" : "") + "." +
                           (res.unchanged ? " " + res.unchanged + " single-shape layer(s) left as they were." : ""));
                 if (res.skipped.length) alert("Some layers were left as they are:\n\n" + res.skipped.join("\n"), "IDtoAE");
+            } catch (e) {
+                setStatus("Stopped.");
+                alert(String(e.message || e), "IDtoAE");
+            }
+        };
+
+        mergeBtn.onClick = function () {
+            try {
+                setSetting("mergeByWord", byWordChk.value);
+                var res = IDtoAE.mergeSelected({ byWord: byWordChk.value });
+                setStatus("Merged " + res.merged + " layers into '" + res.layer.name + "'" + (byWordChk.value ? " (" + res.words + " word groups)" : "") + ".");
+                if (res.skipped.length) alert("Some layers were left out or changed:\n\n" + res.skipped.join("\n"), "IDtoAE");
             } catch (e) {
                 setStatus("Stopped.");
                 alert(String(e.message || e), "IDtoAE");

@@ -1,5 +1,5 @@
 /*
- * IDtoAE v1.3.0 - InDesign to After Effects
+ * IDtoAE v1.4.0 - InDesign to After Effects
  * by Andrew Dean - https://andrewjdean.com
  * Copyright (c) 2026 Andrew Dean. MIT License - see LICENSE in the repository.
  *
@@ -36,7 +36,7 @@ var IDtoAE = IDtoAE || {};
 
 (function (NS) {
 
-    NS.VERSION = "1.3.0";
+    NS.VERSION = "1.4.0";
     NS.WORDS_MARK = "IDtoAE: letters grouped by word";
     NS.AUTHOR = "Andrew Dean";
     NS.WEBSITE = "https://andrewjdean.com";
@@ -833,13 +833,8 @@ var IDtoAE = IDtoAE || {};
 
     // ----------------------------------------------------------- write layers
 
-    function addLeafLayer(comp, src, leaf, name) {
-        var layer = comp.layers.addShape();
-        layer.name = name;
-        var root = layer.property("ADBE Root Vectors Group");
-        var g = root.addProperty("ADBE Vector Group");
-        g.name = leaf.name;
-        var sub = g.property("ADBE Vectors Group");
+    // Paths, stroke and fill of one shape, added to `sub` (a group's contents).
+    function writeShapeContents(sub, leaf) {
         for (var i = 0; i < leaf.paths.length; i++) {
             sub.addProperty("ADBE Vector Shape - Group").property("ADBE Vector Shape").setValue(leaf.paths[i]);
         }
@@ -858,6 +853,15 @@ var IDtoAE = IDtoAE || {};
             f.property("ADBE Vector Fill Opacity").setValue(leaf.fill.opacity);
             f.property("ADBE Vector Fill Rule").setValue(leaf.fill.rule);
         }
+    }
+
+    function addLeafLayer(comp, src, leaf, name) {
+        var layer = comp.layers.addShape();
+        layer.name = name;
+        var root = layer.property("ADBE Root Vectors Group");
+        var g = root.addProperty("ADBE Vector Group");
+        g.name = leaf.name;
+        writeShapeContents(g.property("ADBE Vectors Group"), leaf);
         if (leaf.opacity != 100) {
             root.property(1).property("ADBE Vector Transform Group")
                 .property("ADBE Vector Group Opacity").setValue(leaf.opacity);
@@ -961,6 +965,185 @@ var IDtoAE = IDtoAE || {};
             app.endUndoGroup();
         }
         return { layers: made, words: wordCount, unchanged: unchanged, skipped: skipped };
+    };
+
+    // ------------------------------------------------------------------ merge
+
+    // Layer transform as a matrix: T(position) R(rotation) S(scale) T(-anchor)
+    function layerMatrix(L) {
+        var t = L.transform, a = t.anchorPoint.value, p = t.position.value, s = t.scale.value;
+        var r = t.rotation.value * Math.PI / 180, cos = Math.cos(r), sin = Math.sin(r);
+        var m = mul([cos * s[0] / 100, sin * s[0] / 100, -sin * s[1] / 100, cos * s[1] / 100, 0, 0], [1, 0, 0, 1, -a[0], -a[1]]);
+        m[4] += p[0]; m[5] += p[1];
+        return m;
+    }
+
+    function cannotMerge(L) {
+        var why = cannotSplit(L);
+        if (why) return why;
+        if (L.parent) return "it is parented to another layer (unparent it first)";
+        return null;
+    }
+
+    // Word of a layer: from Break apart names ("06 more - m"), otherwise its label colour.
+    function wordOf(L) {
+        var m = String(L.name).match(/^\d+ (.+) - (.+)$/);
+        return m ? { key: "n:" + m[1], name: m[1], letter: m[2] } : { key: "l:" + L.label, name: "", letter: "" };
+    }
+
+    // "LV RED 2 group w2.05" / "03 This - s" -> "LV RED 2 group" / "This"
+    function baseName(name) {
+        return String(name).replace(/^\d+ /, "").replace(/ w\d+\.\d+$/, "").replace(/ \d\d$/, "").replace(/ - [^-]+$/, "");
+    }
+
+    function setGroupTransform(group, L, origin, opacity) {
+        var t = L.transform, tg = group.property("ADBE Vector Transform Group");
+        var a = t.anchorPoint.value, p = t.position.value, s = t.scale.value;
+        tg.property("ADBE Vector Anchor").setValue([a[0], a[1]]);
+        tg.property("ADBE Vector Position").setValue([p[0] - origin[0], p[1] - origin[1]]);
+        tg.property("ADBE Vector Scale").setValue([s[0], s[1]]);
+        tg.property("ADBE Vector Rotation").setValue(t.rotation.value);
+        if (opacity != 100) tg.property("ADBE Vector Group Opacity").setValue(opacity);
+    }
+
+    /**
+     * Merge shape layers into one shape layer: one group per layer, each layer's
+     * transform moved onto its group so nothing moves.
+     * @param {Object} opts { byWord: put the letters of each word in a word group }
+     * @returns {Object} { layer, merged, words, skipped: [messages] }
+     */
+    NS.mergeLayers = function (comp, sel, opts) {
+        opts = opts || {};
+        var layers = [], skipped = [], i;
+        for (i = 0; i < sel.length; i++) layers.push(sel[i]);
+        layers.sort(function (a, b) { return a.index - b.index; }); // top (front) first
+
+        var usable = [];
+        for (i = 0; i < layers.length; i++) {
+            var L = layers[i], why = cannotMerge(L);
+            var leaves = [], problems = [];
+            if (!why) {
+                collect(L.property("ADBE Root Vectors Group"), IDENTITY, 100, true, L.name, leaves, problems);
+                if (problems.length) why = problems[0];
+                else if (!leaves.length) why = "no shapes found";
+            }
+            if (why) { skipped.push("'" + L.name + "': " + why); continue; }
+            usable.push({ layer: L, leaves: leaves });
+        }
+        if (usable.length < 2) {
+            throw new Error("Select at least two shape layers to merge." + (skipped.length ? "\n\n" + skipped.join("\n") : ""));
+        }
+
+        // The merged layer's origin sits at the centre of everything, in comp space.
+        var b = [Infinity, Infinity, -Infinity, -Infinity];
+        for (i = 0; i < usable.length; i++) {
+            var m = layerMatrix(usable[i].layer), ub = [Infinity, Infinity, -Infinity, -Infinity];
+            usable[i].bounds = ub;
+            for (var k = 0; k < usable[i].leaves.length; k++) {
+                var lb = usable[i].leaves[k].bounds, cs = [[lb[0], lb[1]], [lb[2], lb[1]], [lb[0], lb[3]], [lb[2], lb[3]]];
+                for (var c = 0; c < 4; c++) {
+                    var x = m[0] * cs[c][0] + m[2] * cs[c][1] + m[4], y = m[1] * cs[c][0] + m[3] * cs[c][1] + m[5];
+                    if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y;
+                    if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y;
+                    if (x < ub[0]) ub[0] = x; if (y < ub[1]) ub[1] = y;
+                    if (x > ub[2]) ub[2] = x; if (y > ub[3]) ub[3] = y;
+                }
+            }
+        }
+        var origin = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+
+        var words = 0, wordNames = [], result;
+        app.beginUndoGroup("IDtoAE: merge layers");
+        try {
+            var merged = comp.layers.addShape();
+            var root = merged.property("ADBE Root Vectors Group");
+            var target = root, lastKey = null, inPt = Infinity, outPt = -Infinity, wordStarts = [];
+
+            for (i = 0; i < usable.length; i++) {
+                var src = usable[i].layer, lv = usable[i].leaves;
+                inPt = Math.min(inPt, src.inPoint);
+                outPt = Math.max(outPt, src.outPoint);
+
+                if (opts.byWord) {
+                    var w = wordOf(src);
+                    if (w.key != lastKey) {
+                        words++;
+                        var wg = root.addProperty("ADBE Vector Group");
+                        wg.name = w.name || "Word " + words;
+                        wordNames.push(w.name);
+                        wordStarts.push(i);
+                        target = root.property(root.numProperties).property("ADBE Vectors Group");
+                        lastKey = w.key;
+                    }
+                }
+
+                var lg = target.addProperty("ADBE Vector Group");
+                var wl = wordOf(src);
+                lg.name = (opts.byWord && wl.letter) ? wl.letter : src.name;
+                var opacity = src.transform.opacity.value;
+                if (lv.length == 1) {
+                    // A single shape goes straight into the layer's group (keeps letters one level deep).
+                    writeShapeContents(target.property(target.numProperties).property("ADBE Vectors Group"), lv[0]);
+                    opacity = opacity * lv[0].opacity / 100;
+                } else {
+                    var lc = target.property(target.numProperties).property("ADBE Vectors Group");
+                    for (var j = 0; j < lv.length; j++) {
+                        var g = lc.addProperty("ADBE Vector Group");
+                        g.name = lv[j].name;
+                        writeShapeContents(lc.property(lc.numProperties).property("ADBE Vectors Group"), lv[j]);
+                        var gj = lc.property(lc.numProperties);
+                        if (lv[j].opacity != 100) gj.property("ADBE Vector Transform Group").property("ADBE Vector Group Opacity").setValue(lv[j].opacity);
+                        if (!lv[j].enabled) gj.enabled = false;
+                    }
+                }
+                var lgRef = target.property(target.numProperties);
+                setGroupTransform(lgRef, src, origin, opacity);
+                if (!src.enabled || (lv.length == 1 && !lv[0].enabled)) lgRef.enabled = false;
+                if (src.blendingMode != BlendingMode.NORMAL) skipped.push("'" + src.name + "': blend mode not kept");
+            }
+
+            // Each word group pivots around the centre of its word.
+            for (var wi = 0; wi < wordStarts.length; wi++) {
+                var end = wi + 1 < wordStarts.length ? wordStarts[wi + 1] : usable.length;
+                var wb = [Infinity, Infinity, -Infinity, -Infinity];
+                for (var u = wordStarts[wi]; u < end; u++) {
+                    var ubx = usable[u].bounds;
+                    wb = [Math.min(wb[0], ubx[0]), Math.min(wb[1], ubx[1]), Math.max(wb[2], ubx[2]), Math.max(wb[3], ubx[3])];
+                }
+                var wc = [(wb[0] + wb[2]) / 2 - origin[0], (wb[1] + wb[3]) / 2 - origin[1]];
+                var wtg = root.property(wi + 1).property("ADBE Vector Transform Group");
+                wtg.property("ADBE Vector Anchor").setValue(wc);
+                wtg.property("ADBE Vector Position").setValue(wc);
+            }
+
+            var top = usable[0].layer;
+            var named = true;
+            for (i = 0; i < wordNames.length; i++) if (!wordNames[i]) named = false;
+            merged.name = (opts.byWord && named && wordNames.length) ? wordNames.join(" ") : baseName(top.name) + " (merged)";
+            merged.transform.anchorPoint.setValue([0, 0]);
+            merged.transform.position.setValue(origin);
+            merged.inPoint = inPt;
+            merged.outPoint = outPt;
+            merged.label = top.label;
+            if (opts.byWord && NS.WORDS_MARK) merged.comment = NS.WORDS_MARK;
+            merged.moveBefore(top);
+
+            for (i = 0; i < usable.length; i++) {
+                usable[i].layer.remove();
+            }
+            for (i = 0; i < comp.selectedLayers.length; i++) comp.selectedLayers[i].selected = false;
+            merged.selected = true;
+            result = { layer: merged, merged: usable.length, words: words, skipped: skipped };
+        } finally {
+            app.endUndoGroup();
+        }
+        return result;
+    };
+
+    NS.mergeSelected = function (opts) {
+        var comp = app.project.activeItem;
+        if (!(comp instanceof CompItem)) throw new Error("Open a comp and select the layers to merge.");
+        return NS.mergeLayers(comp, comp.selectedLayers, opts);
     };
 
     // Exposed for tests.
@@ -1070,7 +1253,7 @@ var IDtoAE = IDtoAE || {};
         var rebuildBtn = w.add("button", undefined, "Rebuild from previous export...");
         var svgBtn = w.add("button", undefined, "Export SVG...");
         svgBtn.helpTip = "Saves one SVG per page (text as outlines, one path per letter) for Illustrator or Blender.";
-        var splitGrp = w.add("panel", undefined, "Break apart");
+        var splitGrp = w.add("panel", undefined, "Break apart & merge");
         splitGrp.orientation = "column";
         splitGrp.alignChildren = ["fill", "top"];
         var orderChk = splitGrp.add("checkbox", undefined, "Reading order (left to right, top to bottom)");
@@ -1079,6 +1262,10 @@ var IDtoAE = IDtoAE || {};
         colorChk.value = getSetting("colorWords", "true") == "true";
         var splitBtn = splitGrp.add("button", undefined, "Break apart selected layers");
         splitBtn.helpTip = "Every shape in the selected layers becomes its own layer, with its anchor point at its centre.";
+        var byWordChk = splitGrp.add("checkbox", undefined, "Merge: one group per word");
+        byWordChk.value = getSetting("mergeByWord", "true") == "true";
+        var mergeBtn = splitGrp.add("button", undefined, "Merge selected layers");
+        mergeBtn.helpTip = "Combines the selected shape layers into one layer, one group per layer, without moving anything.";
 
         var status = w.add("statictext", undefined, "Choose an .indd file, then Build comps.", { multiline: true });
         status.preferredSize.height = 44;
@@ -1205,6 +1392,18 @@ var IDtoAE = IDtoAE || {};
                 setStatus("Split into " + res.layers + " layers" + (colorChk.value ? " (" + res.words + " words)" : "") + "." +
                           (res.unchanged ? " " + res.unchanged + " single-shape layer(s) left as they were." : ""));
                 if (res.skipped.length) alert("Some layers were left as they are:\n\n" + res.skipped.join("\n"), "IDtoAE");
+            } catch (e) {
+                setStatus("Stopped.");
+                alert(String(e.message || e), "IDtoAE");
+            }
+        };
+
+        mergeBtn.onClick = function () {
+            try {
+                setSetting("mergeByWord", byWordChk.value);
+                var res = IDtoAE.mergeSelected({ byWord: byWordChk.value });
+                setStatus("Merged " + res.merged + " layers into '" + res.layer.name + "'" + (byWordChk.value ? " (" + res.words + " word groups)" : "") + ".");
+                if (res.skipped.length) alert("Some layers were left out or changed:\n\n" + res.skipped.join("\n"), "IDtoAE");
             } catch (e) {
                 setStatus("Stopped.");
                 alert(String(e.message || e), "IDtoAE");
