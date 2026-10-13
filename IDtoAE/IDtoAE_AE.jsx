@@ -11,7 +11,7 @@ var IDtoAE = IDtoAE || {};
 
 (function (NS) {
 
-    NS.VERSION = "1.2.0";
+    NS.VERSION = "1.3.0";
     NS.WORDS_MARK = "IDtoAE: letters grouped by word";
     NS.AUTHOR = "Andrew Dean";
     NS.WEBSITE = "https://andrewjdean.com";
@@ -410,6 +410,27 @@ var IDtoAE = IDtoAE || {};
         for (var n = 2; ; n++) if (!names[base + " " + n]) return base + " " + n;
     }
 
+    /**
+     * "All", "" or "1-4, 9" -> { pageNumber: true } within 1..count, or null for all.
+     * Same rules as the InDesign side; throws with a readable message.
+     */
+    NS.parsePages = function (spec, count) {
+        spec = String(spec || "").replace(/\s+/g, "");
+        if (spec == "" || /^all$/i.test(spec)) return null;
+        var out = {}, any = false, parts = spec.split(",");
+        for (var p = 0; p < parts.length; p++) {
+            if (!parts[p]) continue;
+            var m = parts[p].match(/^(\d+)(?:-(\d+))?$/);
+            if (!m) throw new Error("Pages: can't read '" + parts[p] + "'. Use e.g. All or 1-4, 9");
+            var a = parseInt(m[1], 10), b = m[2] ? parseInt(m[2], 10) : a;
+            if (a > b) { var t = a; a = b; b = t; }
+            if (a < 1 || (count && b > count)) throw new Error("Pages: the document has pages 1-" + count + " (asked for " + parts[p] + ")");
+            for (var i = a; i <= b; i++) { out[i] = true; any = true; }
+        }
+        if (!any) throw new Error("Pages: no pages selected");
+        return out;
+    };
+
     function quote(s) {
         return '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
     }
@@ -420,7 +441,7 @@ var IDtoAE = IDtoAE || {};
      * Ask InDesign (over BridgeTalk) to export an .indd. Returns the manifest path.
      * @param {String} enginePath  path to IDtoAE_InDesign.jsx
      * @param {String} inddPath
-     * @param {Object} opts  { imageScale, swatchesOnly, liveText }
+     * @param {Object} opts  { imageScale, swatchesOnly, liveText, pages, svg }
      * @param {Function} [status]  called with progress messages
      */
     NS.exportFromInDesign = function (enginePath, inddPath, opts, status) {
@@ -444,7 +465,9 @@ var IDtoAE = IDtoAE || {};
         bt.body = "var IDtoAE_NO_AUTORUN = true;\n$.evalFile(File(" + quote(engine.fsName) + "));\n" +
                   "IDtoAE.exportDocument(" + quote(inddPath) + ", { imageScale: " + Number(opts.imageScale || 2) +
                   ", swatchesOnly: " + (opts.swatchesOnly ? "true" : "false") +
-                  ", liveText: " + (opts.liveText ? "true" : "false") + " });";
+                  ", liveText: " + (opts.liveText ? "true" : "false") +
+                  ", pages: " + quote(opts.pages || "All") +
+                  ", svg: " + (opts.svg ? "true" : "false") + " });";
         var result = null;
         bt.onResult = function (msg) { result = String(msg.body); };
         bt.onError = function (msg) { result = "ERROR|" + msg.body; };
@@ -466,7 +489,8 @@ var IDtoAE = IDtoAE || {};
     /**
      * Build comps from an exported manifest.
      * @param {String} manifestPath
-     * @param {Object} [opts] { fps, duration, swatches (default true), onProgress(done, total, label) }
+     * @param {Object} [opts] { fps, duration, swatches (default true), pages ("All", "1-4, 9"
+     *                         or a { pageNumber: true } map), onProgress(done, total, label) }
      * @returns {Object} { folder, comps, warnings }
      */
     NS.buildFromManifest = function (manifestPath, opts) {
@@ -477,10 +501,15 @@ var IDtoAE = IDtoAE || {};
         var m = parseJSON(readText(mf));
         if (!m.pages) throw new Error("Not an IDtoAE manifest: " + manifestPath);
 
+        var maxIndex = 0;
+        for (var q = 0; q < m.pages.length; q++) maxIndex = Math.max(maxIndex, m.pages[q].index || q + 1);
+        var only = typeof opts.pages == "object" ? opts.pages : NS.parsePages(opts.pages, maxIndex);
+        var pagesLabel = (typeof opts.pages == "string" && only) ? " p" + opts.pages.replace(/\s+/g, "") : "";
+
         if (!app.project) app.newProject();
         app.beginUndoGroup("IDtoAE: build comps");
         try {
-            var root = app.project.items.addFolder(uniqueFolderName(m.document + " (InDesign)"));
+            var root = app.project.items.addFolder(uniqueFolderName(m.document + " (InDesign)" + pagesLabel));
             var compsFolder = app.project.items.addFolder("Pages");
             compsFolder.parentFolder = root;
             var imagesFolder = app.project.items.addFolder("Images");
@@ -493,7 +522,7 @@ var IDtoAE = IDtoAE || {};
             var comps = [];
             for (var p = 0; p < m.pages.length; p++) {
                 var page = m.pages[p];
-                if (opts.pages && !opts.pages[p + 1]) continue;
+                if (only && !only[page.index || p + 1]) continue;
                 if (opts.onProgress) opts.onProgress(p, m.pages.length, "Page " + page.name);
                 var name = "Page " + pad(page.name, 3);
                 var w = Math.max(4, Math.round(page.width)), h = Math.max(4, Math.round(page.height));

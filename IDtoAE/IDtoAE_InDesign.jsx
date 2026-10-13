@@ -649,6 +649,163 @@ var IDtoAE = IDtoAE || {};
         return out;
     }
 
+    // ---------------------------------------------------------------- pages
+
+    /**
+     * "All", "" or "1-4, 9" -> sorted page positions (1-based) within 1..count.
+     * Throws with a readable message on bad input.
+     */
+    function parsePages(spec, count) {
+        spec = String(spec || "").replace(/\s+/g, "");
+        var out = [], seen = {}, i;
+        if (spec == "" || /^all$/i.test(spec)) {
+            for (i = 1; i <= count; i++) out.push(i);
+            return out;
+        }
+        var parts = spec.split(",");
+        for (var p = 0; p < parts.length; p++) {
+            if (!parts[p]) continue;
+            var m = parts[p].match(/^(\d+)(?:-(\d+))?$/);
+            if (!m) throw new Error("Pages: can't read '" + parts[p] + "'. Use e.g. All or 1-4, 9");
+            var a = parseInt(m[1], 10), b = m[2] ? parseInt(m[2], 10) : a;
+            if (a > b) { var t = a; a = b; b = t; }
+            if (a < 1 || b > count) throw new Error("Pages: the document has pages 1-" + count + " (asked for " + parts[p] + ")");
+            for (i = a; i <= b; i++) if (!seen[i]) { seen[i] = 1; out.push(i); }
+        }
+        if (!out.length) throw new Error("Pages: no pages selected");
+        return out.sort(function (x, y) { return x - y; });
+    }
+    NS.parsePages = parsePages;
+
+    // ------------------------------------------------------------------ SVG
+
+    function xmlEsc(s) {
+        s = String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        return s.replace(/[^\x20-\x7e]/g, function (c) { return "&#x" + c.charCodeAt(0).toString(16) + ";"; });
+    }
+
+    function svgId(name, ids) {
+        var base = String(name || "item").replace(/[^A-Za-z0-9_\-]+/g, "_").replace(/^_+|_+$/g, "") || "item";
+        if (!/^[A-Za-z_]/.test(base)) base = "_" + base;
+        if (!ids[base]) { ids[base] = 1; return base; }
+        ids[base]++;
+        return base + "_" + ids[base];
+    }
+
+    // Width and height from a PNG's header.
+    function pngSize(f) {
+        try {
+            f.encoding = "BINARY";
+            if (!f.open("r")) return null;
+            var h = f.read(24);
+            f.close();
+            function u32(o) { return ((h.charCodeAt(o) << 24) >>> 0) + (h.charCodeAt(o + 1) << 16) + (h.charCodeAt(o + 2) << 8) + h.charCodeAt(o + 3); }
+            if (h.substr(12, 4) != "IHDR") return null;
+            return [u32(16), u32(20)];
+        } catch (e) { return null; }
+    }
+
+    function svgHex(rgb) { return "#" + hex2(rgb[0]) + hex2(rgb[1]) + hex2(rgb[2]); }
+
+    function svgNum(v) { return String(Math.round(v * 1000) / 1000); }
+
+    function svgPathData(paths) {
+        var d = [];
+        for (var i = 0; i < paths.length; i++) {
+            var pts = paths[i].pts, n = pts.length;
+            if (!n) continue;
+            d.push("M" + svgNum(pts[0][0]) + " " + svgNum(pts[0][1]));
+            var segs = paths[i].closed ? n : n - 1;
+            for (var k = 0; k < segs; k++) {
+                var a = pts[k], b = pts[(k + 1) % n];
+                var straight = a[4] == a[0] && a[5] == a[1] && b[2] == b[0] && b[3] == b[1];
+                if (straight) d.push("L" + svgNum(b[0]) + " " + svgNum(b[1]));
+                else d.push("C" + svgNum(a[4]) + " " + svgNum(a[5]) + " " + svgNum(b[2]) + " " + svgNum(b[3]) +
+                            " " + svgNum(b[0]) + " " + svgNum(b[1]));
+            }
+            if (paths[i].closed) d.push("Z");
+        }
+        return d.join("");
+    }
+
+    var SVG_CAP = { butt: "butt", round: "round", square: "square" };
+
+    // `prefix` names letters after their word (more_e), since Blender lists
+    // every object in one flat collection.
+    function svgCommon(node, ids, prefix) {
+        var a = ' id="' + svgId((prefix ? prefix + "_" : "") + node.name, ids) + '" data-name="' + xmlEsc(node.name || "") + '"';
+        if (node.opacity != null && node.opacity != 100) a += ' opacity="' + svgNum(node.opacity / 100) + '"';
+        if (node.visible === false) a += ' display="none"';
+        if (node.blend && node.blend != "NORMAL") a += ' style="mix-blend-mode:' + node.blend.toLowerCase().replace(/_/g, "-") + '"';
+        return a;
+    }
+
+    function svgNode(node, out, indent, ids, ctx, prefix, inWords) {
+        if (node.type == "group") {
+            out.push(indent + "<g" + svgCommon(node, ids, prefix) + ">");
+            // Children of a word group are letters: prefix them with the word.
+            for (var i = 0; i < node.children.length; i++) {
+                svgNode(node.children[i], out, indent + "  ", ids, ctx, inWords ? node.name : "", !!node.words);
+            }
+            out.push(indent + "</g>");
+        } else if (node.type == "shape") {
+            var a = svgCommon(node, ids, prefix) + ' d="' + svgPathData(node.paths) + '"';
+            a += node.fill ? ' fill="' + svgHex(node.fill) + '" fill-rule="nonzero"' : ' fill="none"';
+            if (node.stroke) {
+                a += ' stroke="' + svgHex(node.stroke.color) + '" stroke-width="' + svgNum(node.stroke.width) + '"' +
+                     ' stroke-linecap="' + (SVG_CAP[node.stroke.cap] || "butt") + '" stroke-linejoin="' + (node.stroke.join || "miter") + '"' +
+                     ' stroke-miterlimit="' + svgNum(node.stroke.miter || 4) + '"';
+            }
+            out.push(indent + "<path" + a + "/>");
+        } else if (node.type == "image") {
+            // Illustrator ignores width/height on <image> and places it at its pixel
+            // size, so give the real pixel size and scale it into place.
+            var b = node.bounds, px = pngSize(File(ctx.imagesFolder.parent.fsName + "/" + node.file)) || [b[2], b[3]];
+            out.push(indent + "<image" + svgCommon(node, ids, prefix) + ' width="' + px[0] + '" height="' + px[1] + '"' +
+                     ' transform="matrix(' + svgNum(b[2] / px[0]) + ' 0 0 ' + svgNum(b[3] / px[1]) + ' ' + svgNum(b[0]) + ' ' + svgNum(b[1]) + ')"' +
+                     ' preserveAspectRatio="none" href="' + xmlEsc(node.file) + '" xlink:href="' + xmlEsc(node.file) + '"/>');
+        } else if (node.type == "text") {
+            ctx.warn("Live text '" + node.name + "' left out of the SVG");
+        }
+    }
+
+    // One SVG per page; document order is back-to-front, like the manifest.
+    function writeSVG(page, file, ctx) {
+        var ids = {}, out = [];
+        out.push('<?xml version="1.0" encoding="UTF-8"?>');
+        out.push('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1"' +
+                 ' width="' + svgNum(page.width) + 'px" height="' + svgNum(page.height) + 'px"' +
+                 ' viewBox="0 0 ' + svgNum(page.width) + " " + svgNum(page.height) + '">');
+        out.push("  <title>" + xmlEsc(ctx.docName + " - page " + page.name) + "</title>");
+        for (var i = 0; i < page.layers.length; i++) svgNode(page.layers[i], out, "  ", ids, ctx);
+        out.push("</svg>");
+        file.encoding = "UTF-8";
+        file.lineFeed = "Unix";
+        if (!file.open("w")) throw new Error("Could not write " + file.fsName);
+        file.write(out.join("\n") + "\n");
+        file.close();
+    }
+
+    // Page subsets update the pages they cover in an existing manifest.
+    function mergeManifestPages(mf, srcPath, pages) {
+        if (!mf.exists) return pages;
+        var old = null;
+        try {
+            mf.encoding = "UTF-8";
+            mf.open("r");
+            var txt = mf.read();
+            mf.close();
+            if (/^\s*\{"version":/.test(txt)) old = eval("(" + txt + ")");
+        } catch (e) { return pages; }
+        if (!old || old.source != srcPath || !old.pages) return pages;
+        var byIndex = {}, i;
+        for (i = 0; i < old.pages.length; i++) byIndex[old.pages[i].index] = old.pages[i];
+        for (i = 0; i < pages.length; i++) byIndex[pages[i].index] = pages[i];
+        var merged = [];
+        for (var k in byIndex) if (byIndex.hasOwnProperty(k)) merged.push(byIndex[k]);
+        return merged.sort(function (a, b) { return a.index - b.index; });
+    }
+
     function writeManifest(mf, manifest, pageCount, ctx) {
         mf.encoding = "UTF-8";
         mf.lineFeed = "Unix";
@@ -661,8 +818,9 @@ var IDtoAE = IDtoAE || {};
     /**
      * Export an InDesign document for After Effects.
      * @param {String} inddPath  path to the .indd
-     * @param {Object} [opts]    { outFolder, imageScale, swatchesOnly, liveText }
-     * @returns {String} "OK|<manifest path>|<pages>|<warnings>" or "ERROR|<message>"
+     * @param {Object} [opts]    { outFolder, imageScale, swatchesOnly, liveText,
+     *                             pages ("All" or e.g. "1-4, 9"), svg (write one SVG per page) }
+     * @returns {String} "OK|<manifest path, or SVG folder>|<pages>|<warnings>" or "ERROR|<message>"
      */
     NS.exportDocument = function (inddPath, opts) {
         opts = opts || {};
@@ -670,7 +828,8 @@ var IDtoAE = IDtoAE || {};
         if (!src.exists) return "ERROR|File not found: " + inddPath;
         var inddFolder = src.parent.fsName;
         var baseName = decodeURI(src.name).replace(/\.indd$/i, "");
-        var outFolder = Folder(opts.outFolder || (inddFolder + "/" + baseName + "_AE"));
+        var outFolder = Folder(opts.outFolder || (inddFolder + "/" + baseName + (opts.svg ? "_SVG" : "_AE")));
+        if (opts.svg) opts.liveText = false; // SVG apps need outlines (Blender ignores text)
         var imagesFolder = Folder(outFolder.fsName + "/images");
         var scale = opts.imageScale || IMAGE_SCALE_DEFAULT;
 
@@ -684,6 +843,7 @@ var IDtoAE = IDtoAE || {};
         var tmp = File(Folder.temp.fsName + "/IDtoAE_" + new Date().getTime() + ".indd");
         var doc = null;
         var ctx = {
+            docName: baseName,
             warnings: [], colorCache: {}, imageCache: {}, imagesFolder: imagesFolder, imageCount: 0, timings: {}, t0: new Date().getTime(), imageMs: 0,
             mark: function (k) { this.timings[k] = new Date().getTime() - this.t0; },
             warn: function (m) { this.warnings.push(m); }
@@ -694,12 +854,21 @@ var IDtoAE = IDtoAE || {};
             doc = app.open(tmp, false);
             ctx.mark("opened");
 
+            var pageList = opts.swatchesOnly ? [] : parsePages(opts.pages, doc.pages.length);
+            var allPages = pageList.length == doc.pages.length;
+            var wanted = {};
+            for (var w = 0; w < pageList.length; w++) wanted[pageList[w]] = true;
+
             if (!outFolder.exists) outFolder.create();
             if (opts.swatchesOnly) {
                 // nothing else to prepare
             } else if (imagesFolder.exists) {
+                // Replace only the exported pages' images; other pages' comps still use theirs.
                 var old = imagesFolder.getFiles("*.png");
-                for (var o = 0; o < old.length; o++) old[o].remove();
+                for (var o = 0; o < old.length; o++) {
+                    var pm = decodeURI(old[o].name).match(/^p(\d{3})_/);
+                    if (allPages || !pm || wanted[parseInt(pm[1], 10)]) old[o].remove();
+                }
             } else imagesFolder.create();
 
             with (doc.viewPreferences) {
@@ -757,6 +926,7 @@ var IDtoAE = IDtoAE || {};
 
             var pages = [];
             for (var p = 0; p < doc.pages.length; p++) {
+                if (!wanted[p + 1]) continue;
                 var page = doc.pages[p];
                 var b = page.bounds; // [top, left, bottom, right] relative to page origin
                 ctx.pageNum = p + 1;
@@ -779,6 +949,16 @@ var IDtoAE = IDtoAE || {};
 
             ctx.mark("pages");
             ctx.timings.images = ctx.imageMs;
+
+            if (opts.svg) {
+                for (var sp = 0; sp < pages.length; sp++) {
+                    writeSVG(pages[sp], File(outFolder.fsName + "/" + safeName(baseName) + "_page-" + pad(pages[sp].index, 3) + ".svg"), ctx);
+                }
+                if (!imagesFolder.getFiles("*.png").length) imagesFolder.remove();
+                return "OK|" + outFolder.fsName + "|" + pages.length + "|" + ctx.warnings.length;
+            }
+            var mfFile = File(outFolder.fsName + "/manifest.json");
+            if (!allPages) pages = mergeManifestPages(mfFile, src.fsName, pages);
             var manifest = {
                 version: 1,
                 source: src.fsName,
@@ -792,7 +972,7 @@ var IDtoAE = IDtoAE || {};
                 swatches: swatches,
                 warnings: ctx.warnings
             };
-            return writeManifest(File(outFolder.fsName + "/manifest.json"), manifest, pages.length, ctx);
+            return writeManifest(mfFile, manifest, pageList.length, ctx);
         } catch (e) {
             return "ERROR|" + e + (e.line ? " (line " + e.line + ")" : "");
         } finally {

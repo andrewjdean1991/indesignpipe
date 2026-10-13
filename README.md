@@ -9,6 +9,8 @@ with every shape and every letter as a native, animatable **shape layer**.
 - One layer per top-level InDesign item; InDesign groups become nested shape groups
 - Colours are converted to **sRGB** through the document's own CMYK profile, so they match InDesign's sRGB output
 - A **swatch comp** of the document's named swatches, in sRGB
+- **Pages** field: build only the pages you need, for example the 4 a client just updated
+- **Export SVG**: one SVG per page for Illustrator or Blender, with every letter and shape as its own named path
 - **Break apart** splits pages into one layer per letter, in reading order, with a label colour per word
 - Placed images (JPG, WebP, PDF pages, and so on) come in as cropped transparent PNGs at 2x resolution
 - Items on hidden InDesign layers come in switched off
@@ -86,7 +88,8 @@ File Explorer address bar). From a clone of the repository, you can instead righ
 
 ## Use
 
-1. Click **Choose...** and pick the `.indd` file.
+1. Click **Choose...** and pick the `.indd` file. Leave **Pages** on `All`, or list the pages
+   you want, for example `1-4, 9` (page numbers are positions in the document).
 2. Set the frame rate, comp duration and image resolution, and choose what happens to
    live text (see below).
 3. Click **Build comps**. InDesign exports in the background (about 1–2 minutes for a
@@ -102,6 +105,34 @@ PNGs in it. **Rebuild from previous export...** builds comps from an existing
 
 You can also run `IDtoAE/IDtoAE_InDesign.jsx` from this repository on its own, from
 InDesign's Scripts panel, to produce the export folder.
+
+## Building only some pages
+
+Put the pages in the **Pages** field, for example `3-6` or `1, 4, 10-12`, and click
+**Build comps**. Only those pages are exported from InDesign, which is quicker, and their comps go
+into a new folder named after them, for example `FORMAT_MANIFESTO_LAYOUTS (InDesign) p3-6`.
+Comps you've already animated are never touched. Swap the new comps in where you need them.
+
+The export folder stays complete: the updated pages replace their old versions in
+`manifest.json` and `images/`, and the other pages are kept, so **Rebuild from previous
+export...** still has the whole document. Rebuild also follows the Pages field.
+
+## Export SVG (Illustrator, Blender)
+
+**Export SVG...** saves one SVG per page (following the Pages field) into
+`<document>_SVG/` next to the InDesign file, for example `FORMAT_MANIFESTO_LAYOUTS_page-004.svg`.
+
+- Text is always outlined (Blender ignores live text). Letters are separate paths grouped by
+  word, and letters with holes are compound paths.
+- Every item is named: Illustrator shows the names in the Layers panel, and Blender names its
+  curve objects after them (`more_e`, `LV_PINK_rectangle`, and so on).
+- Colours are sRGB hex. Blender converts them to its linear colour space on import.
+- Placed images are linked PNGs in `images/`, so keep that folder next to the SVGs. Illustrator
+  shows them; Blender's SVG import skips images.
+- Pages are 1 px per point, the same size as the comps.
+
+In **Blender**: File > Import > Scalable Vector Graphics (.svg). Each shape becomes a curve
+object; select them and use Object > Convert > Mesh or add Extrude for 3D.
 
 ## Text: keep editable or convert to shapes
 

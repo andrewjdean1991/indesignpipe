@@ -72,6 +72,17 @@
         var browseBtn = fileGrp.add("button", undefined, "Choose...");
         browseBtn.alignment = ["right", "center"];
 
+        var pagesGrp = w.add("group");
+        pagesGrp.orientation = "row";
+        pagesGrp.alignChildren = ["left", "center"];
+        pagesGrp.margins = [10, 0, 10, 0];
+        var pagesLbl = pagesGrp.add("statictext", undefined, "Pages");
+        pagesLbl.preferredSize.width = 110;
+        var pagesTxt = pagesGrp.add("edittext", undefined, getSetting("pages", "All"));
+        pagesTxt.characters = 14;
+        pagesTxt.helpTip = "All, or the pages to export, e.g. 1-4, 9. Used by Build comps, Rebuild and Export SVG.";
+        pagesGrp.add("statictext", undefined, "e.g. All or 1-4, 9");
+
         var optGrp = w.add("panel", undefined, "Comp settings");
         optGrp.orientation = "column";
         optGrp.alignChildren = ["left", "center"];
@@ -100,6 +111,8 @@
         var swatchBtn = w.add("button", undefined, "Swatch comp only");
         swatchBtn.helpTip = "Quickly builds just the swatch comp from the InDesign file's Swatches panel.";
         var rebuildBtn = w.add("button", undefined, "Rebuild from previous export...");
+        var svgBtn = w.add("button", undefined, "Export SVG...");
+        svgBtn.helpTip = "Saves one SVG per page (text as outlines, one path per letter) for Illustrator or Blender.";
         var splitGrp = w.add("panel", undefined, "Break apart");
         splitGrp.orientation = "column";
         splitGrp.alignChildren = ["fill", "top"];
@@ -140,15 +153,18 @@
             if (!(fps > 0) || !(dur > 0) || !(sc > 0)) throw new Error("Frame rate, duration and image resolution must be positive numbers.");
             setSetting("fps", fps); setSetting("duration", dur); setSetting("imageScale", sc);
             var live = textDrop.selection.index == 0;
+            var pages = pagesTxt.text.replace(/^\s+|\s+$/g, "") || "All";
+            IDtoAE.parsePages(pages, 0); // checks the format; page numbers are checked against the document
+            setSetting("pages", pages);
             setSetting("swatches", swatchChk.value);
             setSetting("liveText", live);
-            return { fps: fps, duration: dur, imageScale: sc, swatches: swatchChk.value, liveText: live };
+            return { fps: fps, duration: dur, imageScale: sc, swatches: swatchChk.value, liveText: live, pages: pages };
         }
 
         function build(manifestPath, opts) {
             var t0 = new Date().getTime();
             var res = IDtoAE.buildFromManifest(manifestPath, {
-                fps: opts.fps, duration: opts.duration, swatches: opts.swatches,
+                fps: opts.fps, duration: opts.duration, swatches: opts.swatches, pages: opts.pages,
                 onProgress: function (done, total, label) { setStatus("Building " + label + " (" + (done + 1) + " of " + total + ")..."); }
             });
             var secs = Math.round((new Date().getTime() - t0) / 1000);
@@ -185,6 +201,26 @@
                 opts.swatchesOnly = true;
                 var manifest = IDtoAE.exportFromInDesign(IDtoAE.enginePath(SCRIPT_FOLDER), f.fsName, opts, setStatus);
                 build(manifest, opts);
+            } catch (e) {
+                setStatus("Stopped.");
+                alert(String(e.message || e), "IDtoAE");
+            }
+        };
+
+        svgBtn.onClick = function () {
+            try {
+                var f = File(pathTxt.text);
+                if (!pathTxt.text || !f.exists) throw new Error("Choose an InDesign (.indd) file first.");
+                setSetting("lastFile", f.fsName);
+                var opts = readOpts();
+                opts.svg = true;
+                var t0 = new Date().getTime();
+                var folder = IDtoAE.exportFromInDesign(IDtoAE.enginePath(SCRIPT_FOLDER), f.fsName, opts, setStatus);
+                var n = Folder(folder).getFiles("*.svg").length;
+                setStatus("Saved SVG pages in " + Math.round((new Date().getTime() - t0) / 1000) + "s.");
+                if (confirm("Saved " + n + " SVG file" + (n == 1 ? "" : "s") + " to:\n" + folder + "\n\nShow the folder?", false, "IDtoAE")) {
+                    Folder(folder).execute();
+                }
             } catch (e) {
                 setStatus("Stopped.");
                 alert(String(e.message || e), "IDtoAE");
