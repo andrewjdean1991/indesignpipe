@@ -431,6 +431,19 @@ var IDtoAE = IDtoAE || {};
         return out;
     };
 
+    // [1,2,3,7] -> "1-3, 7"
+    function rangesOf(list) {
+        var out = [], i = 0;
+        list = list.slice().sort(function (a, b) { return a - b; });
+        while (i < list.length) {
+            var j = i;
+            while (j + 1 < list.length && list[j + 1] == list[j] + 1) j++;
+            out.push(j > i ? list[i] + "-" + list[j] : String(list[i]));
+            i = j + 1;
+        }
+        return out.join(", ");
+    }
+
     function quote(s) {
         return '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
     }
@@ -501,10 +514,21 @@ var IDtoAE = IDtoAE || {};
         var m = parseJSON(readText(mf));
         if (!m.pages) throw new Error("Not an IDtoAE manifest: " + manifestPath);
 
-        var maxIndex = 0;
-        for (var q = 0; q < m.pages.length; q++) maxIndex = Math.max(maxIndex, m.pages[q].index || q + 1);
-        var only = typeof opts.pages == "object" ? opts.pages : NS.parsePages(opts.pages, maxIndex);
+        // Page numbers refer to the InDesign document; an export may hold only some of them.
+        var only = typeof opts.pages == "object" ? opts.pages : NS.parsePages(opts.pages, 0);
         var pagesLabel = (typeof opts.pages == "string" && only) ? " p" + opts.pages.replace(/\s+/g, "") : "";
+        if (only) {
+            var have = [], found = 0;
+            for (var q = 0; q < m.pages.length; q++) {
+                var ix = m.pages[q].index || q + 1;
+                have.push(ix);
+                if (only[ix]) found++;
+            }
+            if (!found && m.pages.length) {
+                throw new Error("This export doesn't include page(s) " + opts.pages + " (it has " + rangesOf(have) +
+                                "). Use Build comps to export them from InDesign.");
+            }
+        }
 
         if (!app.project) app.newProject();
         app.beginUndoGroup("IDtoAE: build comps");
