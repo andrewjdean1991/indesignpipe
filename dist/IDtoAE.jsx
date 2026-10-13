@@ -1248,27 +1248,40 @@ var IDtoAE = IDtoAE || {};
         swatchChk.value = getSetting("swatches", "true") == "true";
 
         var goBtn = w.add("button", undefined, "Build comps");
-        var swatchBtn = w.add("button", undefined, "Swatch comp only");
+        // Secondary actions share one row to keep the panel short.
+        var moreGrp = w.add("group");
+        moreGrp.orientation = "row";
+        moreGrp.alignChildren = ["fill", "center"];
+        moreGrp.spacing = 6;
+        var swatchBtn = moreGrp.add("button", undefined, "Swatches only");
         swatchBtn.helpTip = "Quickly builds just the swatch comp from the InDesign file's Swatches panel.";
-        var rebuildBtn = w.add("button", undefined, "Rebuild from previous export...");
-        var svgBtn = w.add("button", undefined, "Export SVG...");
+        var rebuildBtn = moreGrp.add("button", undefined, "Rebuild...");
+        rebuildBtn.helpTip = "Builds comps from a previous export (manifest.json) without opening InDesign.";
+        var svgBtn = moreGrp.add("button", undefined, "Export SVG...");
         svgBtn.helpTip = "Saves one SVG per page (text as outlines, one path per letter) for Illustrator or Blender.";
-        var splitGrp = w.add("panel", undefined, "Break apart & merge");
+
+        var splitGrp = w.add("panel", undefined, "Layers");
         splitGrp.orientation = "column";
         splitGrp.alignChildren = ["fill", "top"];
-        var orderChk = splitGrp.add("checkbox", undefined, "Reading order (left to right, top to bottom)");
+        splitGrp.spacing = 4;
+        var orderChk = splitGrp.add("checkbox", undefined, "Break apart: reading order");
+        orderChk.helpTip = "Order the new layers left to right, top to bottom.";
         orderChk.value = getSetting("readingOrder", "true") == "true";
-        var colorChk = splitGrp.add("checkbox", undefined, "Label colour per word");
+        var colorChk = splitGrp.add("checkbox", undefined, "Break apart: label colour per word");
         colorChk.value = getSetting("colorWords", "true") == "true";
-        var splitBtn = splitGrp.add("button", undefined, "Break apart selected layers");
-        splitBtn.helpTip = "Every shape in the selected layers becomes its own layer, with its anchor point at its centre.";
         var byWordChk = splitGrp.add("checkbox", undefined, "Merge: one group per word");
         byWordChk.value = getSetting("mergeByWord", "true") == "true";
-        var mergeBtn = splitGrp.add("button", undefined, "Merge selected layers");
+        var layerBtns = splitGrp.add("group");
+        layerBtns.orientation = "row";
+        layerBtns.alignChildren = ["fill", "center"];
+        layerBtns.spacing = 6;
+        var splitBtn = layerBtns.add("button", undefined, "Break apart");
+        splitBtn.helpTip = "Every shape in the selected layers becomes its own layer, with its anchor point at its centre.";
+        var mergeBtn = layerBtns.add("button", undefined, "Merge");
         mergeBtn.helpTip = "Combines the selected shape layers into one layer, one group per layer, without moving anything.";
 
         var status = w.add("statictext", undefined, "Choose an .indd file, then Build comps.", { multiline: true });
-        status.preferredSize.height = 44;
+        status.preferredSize.height = 36;
 
         // Footer: credit with a link to the website.
         var foot = w.add("group");

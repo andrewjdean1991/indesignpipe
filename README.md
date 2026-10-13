@@ -100,7 +100,7 @@ and `Images` subfolders. Each layer's comment records which InDesign layer it ca
 
 The export is saved next to the InDesign file as `<document>_AE/`
 (`manifest.json` plus `images/`). Keep this folder, because the AE project references the
-PNGs in it. **Rebuild from previous export...** builds comps from an existing
+PNGs in it. **Rebuild...** builds comps from an existing
 `manifest.json` without opening InDesign again.
 
 You can also run `IDtoAE/IDtoAE_InDesign.jsx` from this repository on its own, from
@@ -114,8 +114,7 @@ into a new folder named after them, for example `FORMAT_MANIFESTO_LAYOUTS (InDes
 Comps you've already animated are never touched. Swap the new comps in where you need them.
 
 The export folder stays complete: the updated pages replace their old versions in
-`manifest.json` and `images/`, and the other pages are kept, so **Rebuild from previous
-export...** still has the whole document. Rebuild also follows the Pages field.
+`manifest.json` and `images/`, and the other pages are kept, so **Rebuild...** still has the whole document. Rebuild also follows the Pages field.
 
 ## Export SVG (Illustrator, Blender)
 
@@ -157,7 +156,7 @@ words from the letter spacing instead.
 ## Swatch comp
 
 **Build comps** also makes a `<document> Swatches` comp (untick **Swatch comp (sRGB)**
-to skip it), and **Swatch comp only** builds just that comp in a couple of seconds.
+to skip it), and **Swatches only** builds just that comp in a couple of seconds.
 It has one chip per swatch from InDesign's Swatches panel, in panel order, with:
 
 - the swatch name
@@ -172,7 +171,7 @@ The text layers are parented to their chip, so you can move a chip and its label
 ## Break apart (second stage)
 
 Use this on the pages that need it. Select shape layers in a comp and click
-**Break apart selected layers**. Every shape inside them becomes its own shape layer,
+**Break apart** (in the **Layers** section). Every shape inside them becomes its own shape layer,
 however deeply it was nested in groups, and each new layer's anchor point sits
 at the centre of its shape. Letters with holes (O, A, 9...) stay as one shape.
 Layers that hold a single shape are left as they are. It's a single undo step.
@@ -189,7 +188,7 @@ Layers with animated transforms, effects, masks or 3D are skipped and listed.
 
 ## Merge (back into one layer)
 
-Select shape layers in a comp and click **Merge selected layers**. They become one shape
+Select shape layers in a comp and click **Merge** (in the **Layers** section). They become one shape
 layer, with one group per original layer in the same front-to-back order. Each layer's anchor
 point, position, scale, rotation and opacity move onto its group, so nothing moves on screen,
 and every letter still pivots around its own centre. It's a single undo step.
